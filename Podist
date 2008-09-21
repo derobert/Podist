@@ -64,9 +64,13 @@ sub register_commands {
 			new       => \&add_podcast,
 			subscribe => \&add_podcast,
 
+			catch     => \&catch,
 			fetch     => \&fetch,
 			download  => \&download,
 			stopwatch => \&stopwatch,
+
+			playlist  => \&playlist,
+			all_playlists => \&all_playlists,
 
 			help => \&help,
 		};
@@ -80,6 +84,12 @@ sub add_podcast {
 	DBH->do(<<QUERY, {}, $name, $url);
 INSERT INTO feeds(feed_name, feed_url) VALUES(?, ?)
 QUERY
+}
+
+sub catch {
+	fetch();
+	download();
+	stopwatch();
 }
 
 sub fetch {
@@ -274,9 +284,126 @@ QUERY
 	}
 }
 
+sub playlist {
+	DBH->do('INSERT INTO playlists(playlist_ctime) VALUES (?)', {}, time());
+
+	my $p_no = DBH->last_insert_id('', '', 'playlists', 'playlist_no')
+		or LOGDIE("Could not get playlist number");
+
+	my @playlist = ();
+	my @bans;
+	my $duration = 0;
+	my $last_feed = 0; # feed_no's start at 1, avoid undef warnings
+	my $consec = 0;
+	my %feed_cnts;;
+
+	my $mark = DBH->prepare(<<QUERY);
+UPDATE enclosures
+  SET playlist_no = ?, playlist_so = ?
+  WHERE enclosure_no = ?
+QUERY
+
+	until ($duration >= CONFIG->{playlist}{targetduration}
+			|| @playlist >= CONFIG->{playlist}{maximumfiles})
+	{
+		my $only_feed = '1';
+		my $order;
+		my $where = playlist_valid_where(scalar @playlist,
+			$duration, $last_feed, $consec, \@bans);
+		TRACE("Rules-enforcing WHERE: $where");
+
+		# Figure the choice method
+		if (CONFIG->{playlist}{choicemethod} =~ /RandomFeed/i) {
+			($only_feed) = DBH->selectrow_array(<<QUERY);
+SELECT DISTINCT feed_no FROM valids
+  WHERE $where
+  ORDER BY random() LIMIT 1
+QUERY
+			$order = 'random()';
+			$only_feed
+				or last;
+			TRACE("Picked feed $only_feed");
+			$only_feed = "feed_no = $only_feed";
+		} else {
+			given (lc(CONFIG->{playlist}{choicemethod})) {
+				when ('random')  { $order = 'random()' }
+				when ('longest') { $order = 'enclosure_time DESC' }
+				when ('oldest')  { $order = 'enclosure_when ASC' }
+				default { LOGIDE("Unknown ChoiceMethod: $_") };
+			}
+		}
+		TRACE("ORDER BY $order");
+
+		# Chose an item.
+		my ($feed_no, $enc_no, $enc_file, $enc_time)
+			= DBH->selectrow_array(<<QUERY);
+SELECT feed_no, enclosure_no, enclosure_file, enclosure_time
+  FROM valids
+  WHERE ($where) AND ($only_feed)
+  ORDER BY $order
+  LIMIT 1
+QUERY
+		$enc_no
+			or last;
+		DEBUG("Picked feed $feed_no, enc $enc_no, dur $enc_time");
+
+		push @playlist, $enc_no;
+		$duration += $enc_time;
+
+		if ($feed_no == $last_feed) {
+			++$consec;
+		} else {
+			$last_feed = $feed_no;
+			$consec = 1;
+		}
+
+		if (++$feed_cnts{$feed_no} >= CONFIG->{playlist}{maximumperfeed}) {
+			push @bans, $feed_no;
+		}
+
+		$mark->execute($p_no, scalar(@playlist), $enc_no);
+
+		DEBUG("Playlist files=" . scalar(@playlist) . "; dur=$duration");
+	}
+
+	TRACE("Done with playlist add loop - doing constraint checks");
+	$duration < CONFIG->{playlist}{minimumduration}
+		and LOGDIE("Playlist too short; abort");
+	@playlist < CONFIG->{playlist}{minimumfiles}
+		and LOGDIE("Playlist has too few files; abort");
+		
+}
+
+sub all_playlists {
+	while (1) {
+		playlist();
+		DBH->commit;
+	}
+}
+
+sub playlist_valid_where {
+	my ($cur_files, $cur_time, $last_feed, $consec, $bans) = @_;
+
+	my $not_in;
+	if ($consec >= CONFIG->{playlist}{maximumconsecutive}) {
+		$not_in = join(q{,}, $last_feed, @$bans);
+	} else {
+		$not_in = join(q{,}, @$bans);
+	}
+	$not_in = ('' ne $not_in) ? "feed_no NOT IN ($not_in)" : '1';
+
+	my $time_constraint = 1;
+	if ($cur_files >= CONFIG->{playlist}{minimumfiles}) {
+		my $mx = CONFIG->{playlist}{maximumduration} - $cur_time;
+		$time_constraint = "enclosure_time <= $mx";
+	};
+
+	return "$not_in AND $time_constraint";
+}
+
 sub help {
 	print STDERR <<HELP;
-Usage: $0 command arguments
+Usage - $0 command arguments
 
 Commands are:
 
@@ -285,6 +412,10 @@ Commands are:
       should be the RSS or Atom feed. Name is anything you want, but
       must be unique for all your subscribed podcasts. Remember to quote
       Name and URL for your shell.
+
+   catch
+     Run the podcatcher. The same as fetch, download, and stopwatch (in
+     that order) below.
 
    fetch
       Grabs the subscribed RSS feeds and adds all the enclosures to the
@@ -297,6 +428,10 @@ Commands are:
    stopwatch
       Calculates how long each downloaded podcast is, and stores this
       information in the database.
+
+   playlist
+      Builds playlists based on downloaded, stopwatched media in the
+      database.
    
    help
       Duh.
@@ -381,6 +516,48 @@ DataDir $confdir # e.g., \$HOME/.podist
 	PlaylistedMedia \$HOME/Podist/media-listed
 	Playlists       \$HOME/Podist/playlists
 </storage>
+
+<playlist>
+	# These are constraints for playlist generation. They are followed
+	# as:
+	#   1. If there are less than MinimumFiles, add any valid file (defined
+	#      below)
+	#   2. If there are MaximumFiles, stop. This playlist is done.
+	#   3. If the playlist duration is less than TargetDuration, add any
+	#      valid file such that the duration does not exceed
+	#      MaximumDuration. If there are no files to add, stop, this
+	#      playlist is done.
+	#   4. If the playlist duration is at least TargetDuration, stop.
+	#      This playlist is done.
+	# Those are repeated until hitting a "stop", of course.
+	#
+	# As a final check, before comitting the playlist, if the total
+	# length is less than MinimumDuration, abort.
+	#
+	# A valid file is any file that is:
+	#   - the oldest unplaylisted file in its feed, if the feed is ordered
+	#   - any unplayed file in an unordered feed
+	# and does not put more than MaxConsecutive files from the same feed
+	# in a row and does not exceed MaximumPerFeed files from that feed
+	# in the current playlist.
+	MinimumDuration    1800
+	TargetDuration     3600
+	MaximumDuration    7200
+	MinimumFiles       1
+	MaximumFiles       5
+	MaximumConsecutive 2
+	MaximumPerFeed     4
+
+	# How do we pick between multiple valid options, all of which follow
+	# the rules?
+	#   - Random: pick completely at random
+	#   - RandomFeed: pick at random, but make sure each feed has an
+	#                 equal chance even if feed A has 10 eps, and feed B
+	#                 has 300.
+	#   - Longest: Pick the longest (duration) 
+	#   - Oldest: Pick the oldest
+	ChoiceMethod       RandomFeed
+</playlist>
 
 <database>
 	DSN dbi:SQLite:dbname=\$DataDir/podist.db
@@ -477,7 +654,9 @@ CREATE TABLE feeds (
   feed_url       TEXT      NOT NULL UNIQUE,
   feed_name      TEXT      NOT NULL UNIQUE,
   feed_enabled   INTEGER   NOT NULL DEFAULT 1,
-  CONSTRAINT enabled_is_bool CHECK (feed_enabled IN (0,1))
+  feed_ordered   INTEGER   NOT NULL DEFAULT 1,
+  CONSTRAINT enabled_is_bool CHECK (feed_enabled IN (0,1)),
+  CONSTRAINT ordered_is_bool CHECK (feed_ordered IN (0,1))
 )
 SQL
 		$dbh->do(<<SQL);
@@ -494,10 +673,43 @@ CREATE TABLE enclosures (
   enclosure_file   TEXT      NULL UNIQUE,
   enclosure_when   INTEGER   NOT NULL, -- unix timestamp
   enclosure_time   REAL      NULL, -- length in seconds
+  enclosure_use    INTEGER   NOT NULL DEFAULT 1,
   playlist_no      INTEGER   NULL REFERENCES playlists,
   playlist_so      INTEGER   NULL,
-  UNIQUE(playlist_no, playlist_so)
+  UNIQUE(playlist_no, playlist_so),
+  CONSTRAINT use_is_bool CHECK (enclosure_use IN (0,1))
 )
+SQL
+		$dbh->do(<<SQL);
+CREATE VIEW oldest_unplayed AS
+  SELECT feed_no, min(enclosure_when) AS oldest
+    FROM enclosures
+    WHERE
+      enclosure_file IS NOT NULL
+      AND playlist_no IS NULL
+      AND enclosure_use = 1
+    GROUP BY feed_no
+SQL
+		$dbh->do(<<SQL);
+CREATE VIEW valids AS
+  SELECT
+    f.feed_ordered    AS feed_ordered,
+    e.enclosure_no    AS enclosure_no,
+    e.feed_no         AS feed_no,
+    e.enclosure_url   AS enclosure_url,
+    e.enclosure_file  AS enclosure_file,
+    e.enclosure_when  AS enclosure_when,
+    e.enclosure_time  AS enclosure_time
+  FROM
+    feeds f
+    JOIN enclosures e ON (f.feed_no = e.feed_no)
+    LEFT JOIN oldest_unplayed ou ON (e.feed_no = ou.feed_no)
+  WHERE
+    (NOT f.feed_ordered OR e.enclosure_when = ou.oldest)
+    AND e.enclosure_file IS NOT NULL
+    AND e.enclosure_time IS NOT NULL
+    AND e.playlist_no IS NULL
+    AND e.enclosure_use = 1
 SQL
 		$dbh->selectrow_array('PRAGMA user_version = 1');
 		$dbh->commit;
