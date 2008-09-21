@@ -347,7 +347,7 @@ QUERY
 			or last;
 		DEBUG("Picked feed $feed_no, enc $enc_no, dur $enc_time");
 
-		push @playlist, $enc_no;
+		push @playlist, $enc_file;
 		$duration += $enc_time;
 
 		if ($feed_no == $last_feed) {
@@ -371,6 +371,22 @@ QUERY
 		and LOGDIE("Playlist too short; abort");
 	@playlist < CONFIG->{playlist}{minimumfiles}
 		and LOGDIE("Playlist has too few files; abort");
+
+	my $fname = notaint(
+		sprintf("%s/Playlist %03i.m3u", CONFIG->{storage}{playlists}, $p_no));
+	TRACE("Writing playlist $fname");
+	write_file($fname, map CONFIG->{storage}{playlistedmedia}."/$_\n", @playlist);
+	TRACE("Moving files");
+	foreach my $f (@playlist) {
+		my $old = notaint(CONFIG->{storage}{pendingmedia}."/$f");
+		my $new = notaint(CONFIG->{storage}{playlistedmedia}."/$f");
+		
+		-e $new
+			and LOGDIE("WTF - $new already exists");
+
+		rename($old, $new)
+			or LOGDIE("could not rename $old to $new");
+	}
 		
 }
 
