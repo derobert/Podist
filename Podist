@@ -126,9 +126,6 @@ QUERY
 			next;
 		}
 
-		TRACE("Normalizing");
-		$feed->normalize;
-
 		foreach my $item ($feed->get_item) {
 			my $enc_url = $item->get('enclosure@url');
 			unless ($enc_url) {
