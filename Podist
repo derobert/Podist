@@ -3,15 +3,16 @@
 use Config::General;
 use Data::Dumper;
 use DBI;
+use File::Find qw(find);
 use File::Path qw(mkpath);
 use File::Slurp qw(write_file);
+use File::Temp qw(tempfile);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
-use XML::FeedPP;
 use MP3::Info qw(get_mp3info);
 use Ogg::Vorbis::Header;
-use File::Temp qw(tempfile);
 use POSIX qw(strftime);
+use XML::FeedPP;
 
 use feature 'state';
 use feature 'switch';
@@ -22,6 +23,10 @@ sub CONFIG();     # defined by setup
 sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
 
+
+setup();
+
+# Don't do this until after setup, because we need log4perl ready first!
 $SIG{__DIE__} = sub {
 	if ($^S) {
 		# We're in an eval {} and don't want log
@@ -32,7 +37,6 @@ $SIG{__DIE__} = sub {
 	LOGDIE @_;
 };
 
-setup();
 register_commands();
 go();
 
@@ -72,6 +76,8 @@ sub register_commands {
 
 			playlist  => \&playlist,
 			all_playlists => \&all_playlists,
+
+			status    => \&status,
 
 			help => \&help,
 		};
@@ -453,6 +459,19 @@ sub playlist_valid_where {
 	return "$not_in AND $time_constraint";
 }
 
+sub find_random_items {
+	my $dir = CONFIG->{storage}{randommedia};
+	my @files;
+
+	find({
+			wanted => sub {
+				-f -r $File::Find::fullname
+					and push @files, $File::Find::name;
+			},
+			follow => 1,
+		});
+}
+
 sub help {
 	print STDERR <<HELP;
 Usage - $0 command arguments
@@ -484,6 +503,9 @@ Commands are:
    playlist
       Builds playlists based on downloaded, stopwatched media in the
       database.
+
+   status
+      Shows a summary of what's in the database.
    
    help
       Duh.
@@ -530,7 +552,7 @@ sub setup_dirs {
 	for my $d (
 		@{CONFIG->{storage}}{
 			qw(pendingmedia playlistedmedia
-				playlists)
+				playlists randommedia)
 		})
 	{
 		-d $d
@@ -567,6 +589,7 @@ DataDir $confdir # e.g., \$HOME/.podist
 	PendingMedia    \$HOME/Podist/media-pending
 	PlaylistedMedia \$HOME/Podist/media-listed
 	Playlists       \$HOME/Podist/playlists
+	RandomMedia     \$HOME/Podist/playlists/random
 </storage>
 
 <playlist>
@@ -609,6 +632,21 @@ DataDir $confdir # e.g., \$HOME/.podist
 	#   - Longest: Pick the longest (duration) 
 	#   - Oldest: Pick the oldest
 	ChoiceMethod       RandomFeed
+	
+	# What should the chance be of throwing in a random item after each
+	# played item?
+	#   - Mode: Count, Time
+	#   - Func: Constant [ f(x)=b ],  Linear [ f(x) = mx+b ]
+	#   - M: Slope in linear
+	#   - B: Y-intercept, aka constan in constant func
+	RandomChanceMode   Time
+	RandomChanceFunc   Linear
+	RandomChanceM      1/3600
+	RandomChanceB      0.2
+
+	# If we insert a random item, does this reset the consecutive same
+	# podcast counter?
+	ResetConsecutive   yes
 </playlist>
 
 <database>
@@ -675,7 +713,26 @@ CONF
 		-DefaultConfig         => \%defs,
 	);
 
-	return {$cg_conf->getall};
+	my $config = { $cg_conf->getall };
+
+	# durations can have H or M after them; normalize to seconds. If
+	# someone explicitly specified S for seconds, that's fine too...
+	foreach my $v (qw(minimumduration targetduration maximumduration)) {
+		$config->{playlist}{$v} =~ /^(\d+)\s*S$$/i
+			and $config->{playlist}{$v} = $1;
+		$config->{playlist}{$v} =~ /^(\d+)\s*M$$/i
+			and $config->{playlist}{$v} = $1 * 60;
+		$config->{playlist}{$v} =~ /^(\d+)\s*H$$/i
+			and $config->{playlist}{$v} = $1 * 3600;
+	}
+
+	# change fractions for RandomChanceM and RandomChanceB to decimals
+	foreach my $v (qw(randomchancem randomchanceb)) {
+		$config->{playlist}{$v} =~ m!(\d+)/(\d+)!
+			and $config->{playlist}{$v} = $1/$2;
+	}
+
+	return $config;
 }
 
 use constant DB_VERSION => 1;
