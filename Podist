@@ -11,6 +11,7 @@ use XML::FeedPP;
 use MP3::Info qw(get_mp3info);
 use Ogg::Vorbis::Header;
 use File::Temp qw(tempfile);
+use POSIX qw(strftime);
 
 use feature 'state';
 use feature 'switch';
@@ -136,6 +137,7 @@ QUERY
 			next;
 		}
 
+		my ($date_last1, $date_last2);
 		foreach my $item ($feed->get_item) {
 			my $enc_url = $item->get('enclosure@url');
 			unless ($enc_url) {
@@ -144,7 +146,7 @@ QUERY
 			}
 
 			my $enc_type = $item->get('enclosure@type');
-			unless ('' eq $enc_type || $enc_type =~ m#^audio/(ogg|mpeg)$ #x) {
+			unless ('' eq $enc_type || $enc_type =~ m#^audio/(ogg|mpeg|x-mp3)$ #x) {
 				INFO("Skipping uknown enclosure type $enc_type");
 				next;
 			}
@@ -158,7 +160,40 @@ QUERY
 			$check->finish; # just in case
 
 			DEBUG("Adding $enc_url from ".$item->title);
-			$ins->execute($feed_no, $enc_url, $item->get_pubDate_epoch);
+			my $date = $item->get_pubDate_epoch;
+			if (!$date) {
+				ERROR("get_pubDate_epoch failed");
+				if (defined $date_last2) {
+					if ($date_last2 > $date_last1) {
+						# podcast is most-recent first
+						WARN("Assuming one second BEFORE previous");
+						$date = $date_last1 - 1;
+					} elsif ($date_last2 < $date_last1) {
+						# podcast is least-recent first
+						WARN("Assuming one second AFTER previous");
+						$date = $date_last1 + 1;
+					} else {
+						WARN("Assuming same date as previous two!");
+						$date = $date_last1;
+					}
+				} elsif (defined $date_last1) {
+					# randomly guess podcast is most-recent first; a lot
+					# seem to be.
+					WARN("Guessing most-recent first");
+					WARN("Guessing one second BEFORE previous");
+					$date = $date_last1 - 1;
+				} else {
+					WARN("Is first item; no f—ing clue what date to use");
+					WARN("Using current time!");
+					$date = time;
+				}
+				DEBUG("The time is now "
+						. strftime("%F %H:%M:%S %Z", localtime($date))
+						. ".\nDo you know where your podcasts are?");
+			}
+			$ins->execute($feed_no, $enc_url, $date);
+			$date_last2 = $date_last1;
+			$date_last1 = $date;
 		}
 	}
 }
@@ -205,9 +240,10 @@ QUERY
 		my $ctype = $resp->content_type;
 		my $suffix;
 		given ($ctype) {
-			when ('audio/mpeg') { $suffix = 'mp3' }
-			when ('audio/ogg')  { $suffix = 'ogg' }
-			default             { $suffix = 'wtf' }
+			when ('audio/mpeg')  { $suffix = 'mp3' }
+			when ('audio/x-mp3') { $suffix = 'mp3' } # morons
+			when ('audio/ogg')   { $suffix = 'ogg' }
+			default              { $suffix = 'wtf' }
 		}
 		TRACE("Content-Type: $ctype; suffix: $suffix");
 
