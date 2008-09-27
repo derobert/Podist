@@ -12,6 +12,7 @@ use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
 use Ogg::Vorbis::Header;
 use POSIX qw(strftime);
+use Text::ASCIITable;
 use XML::FeedPP;
 
 use feature 'state';
@@ -265,6 +266,28 @@ QUERY
 
 		$upd->execute($name, $enc_no);
 	}
+}
+
+sub status {
+	my $tab = Text::ASCIITable->new({outputWidth => 72});
+	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst');
+	$tab->addRow(@$_) foreach @{DBH->selectall_arrayref(<<QUERY)};
+SELECT
+    feed_name,
+    COUNT(e.enclosure_no),
+    ROUND(SUM(e.enclosure_time)/3600),
+    SUM(CASE WHEN e.enclosure_file IS NOT NULL THEN 100 ELSE 0 END)/COUNT(*),
+    SUM(CASE WHEN e.playlist_no IS NOT NULL THEN 100 ELSE 0 END)/COUNT(*)
+  FROM
+    feeds f
+    LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
+  WHERE
+    e.enclosure_use = 1
+  GROUP BY feed_name
+  ORDER BY feed_name
+QUERY
+
+	print $tab;
 }
 
 sub stopwatch {
