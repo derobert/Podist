@@ -355,12 +355,19 @@ sub playlist {
 	my $p_no = DBH->last_insert_id('', '', 'playlists', 'playlist_no')
 		or LOGDIE("Could not get playlist number");
 
+	my @randoms = find_random_items();
 	my @playlist = ();
 	my @bans;
 	my $duration = 0;
 	my $last_feed = 0; # feed_no's start at 1, avoid undef warnings
 	my $consec = 0;
 	my %feed_cnts;;
+	my $since_rand_itms = 0;
+	my $since_rand_time = 0;
+	my $random_m = CONFIG->{playlist}{randomchancem};
+	my $random_b = CONFIG->{playlist}{randomchanceb};
+	my $random_func = lc(CONFIG->{playlist}{randomchancefunc});
+	my $random_mode = lc(CONFIG->{playlist}{randomchancemode});
 
 	my $mark = DBH->prepare(<<QUERY);
 UPDATE enclosures
@@ -428,6 +435,31 @@ QUERY
 
 		$mark->execute($p_no, scalar(@playlist), $enc_no);
 
+		# Update random stats
+		++$since_rand_itms;
+		$since_rand_time += $enc_time;
+
+		# Randomly add a random item, maybe.
+		my $add_random = 0;
+		my $x
+			= ('time' eq $random_mode) ? $since_rand_time : $since_rand_itms;
+		my $chance = $x * $random_m + $random_b;
+		TRACE("Random chance = $chance");
+		if (rand() < $chance) {
+			my $item = $randoms[int rand @randoms];
+			DEBUG("Adding random item $item");
+			push @playlist, $item;
+
+			$since_rand_time = 0;
+			$since_rand_itms = 0;
+
+			if (CONFIG->{playlist}{resetconsecutive}) {
+				$consec = 0;
+				$last_feed = 0;
+			}
+		}
+
+
 		DEBUG("Playlist files=" . scalar(@playlist) . "; dur=$duration");
 	}
 
@@ -440,9 +472,10 @@ QUERY
 	my $fname = notaint(
 		sprintf("%s/Playlist %03i.m3u", CONFIG->{storage}{playlists}, $p_no));
 	TRACE("Writing playlist $fname");
-	write_file($fname, map CONFIG->{storage}{playlistedmedia}."/$_\n", @playlist);
+	write_file($fname, map $_ =~ m!^/! ? "$_\n" : CONFIG->{storage}{playlistedmedia}."/$_\n", @playlist);
 	TRACE("Moving files");
 	foreach my $f (@playlist) {
+		next if $f =~ m!^/!; # prob random item
 		my $old = notaint(CONFIG->{storage}{pendingmedia}."/$f");
 		my $new = notaint(CONFIG->{storage}{playlistedmedia}."/$f");
 		
@@ -483,7 +516,7 @@ sub playlist_valid_where {
 }
 
 sub find_random_items {
-	my $dir = CONFIG->{storage}{randommedia};
+	my $dir = 
 	my @files;
 
 	find({
@@ -491,8 +524,12 @@ sub find_random_items {
 				-f -r $File::Find::fullname
 					and push @files, $File::Find::name;
 			},
-			follow => 1,
-		});
+			follow  => 1,
+			untaint => 1,
+		},
+		notaint(CONFIG->{storage}{randommedia}));
+
+	return @files;
 }
 
 sub help {
@@ -659,12 +696,14 @@ DataDir $confdir # e.g., \$HOME/.podist
 	# What should the chance be of throwing in a random item after each
 	# played item?
 	#   - Mode: Count, Time
-	#   - Func: Constant [ f(x)=b ],  Linear [ f(x) = mx+b ]
-	#   - M: Slope in linear
+	#   - M: Slope
 	#   - B: Y-intercept, aka constan in constant func
+	# That is, f(x) = mx + b
+	#
+	# NOTE: Random items are ignored in length/duration constraints
+	#       (above).
 	RandomChanceMode   Time
-	RandomChanceFunc   Linear
-	RandomChanceM      1/3600
+	RandomChanceM      1/7200
 	RandomChanceB      0.2
 
 	# If we insert a random item, does this reset the consecutive same
@@ -741,11 +780,11 @@ CONF
 	# durations can have H or M after them; normalize to seconds. If
 	# someone explicitly specified S for seconds, that's fine too...
 	foreach my $v (qw(minimumduration targetduration maximumduration)) {
-		$config->{playlist}{$v} =~ /^(\d+)\s*S$$/i
+		$config->{playlist}{$v} =~ /^(\d+)\s*S$/i
 			and $config->{playlist}{$v} = $1;
-		$config->{playlist}{$v} =~ /^(\d+)\s*M$$/i
+		$config->{playlist}{$v} =~ /^(\d+)\s*M$/i
 			and $config->{playlist}{$v} = $1 * 60;
-		$config->{playlist}{$v} =~ /^(\d+)\s*H$$/i
+		$config->{playlist}{$v} =~ /^(\d+)\s*H$/i
 			and $config->{playlist}{$v} = $1 * 3600;
 	}
 
