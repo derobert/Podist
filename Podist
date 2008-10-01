@@ -296,8 +296,8 @@ QUERY
 			outputWidth => 72,
 			headingText => 'New Hours per Day over Various Time Periods'
 	});
-	$tab->setCols(qw(Feed 2d 7d 30d Forever));
-	$tab->alignCol($_, 'right') foreach(qw(2d 30d Forever));
+	$tab->setCols(qw(Feed 2d 7d 30d 90d Forever));
+	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d Forever));
 	my $sth = DBH->prepare(<<QUERY);
 SELECT
     f.feed_name,
@@ -316,6 +316,11 @@ SELECT
         THEN e.enclosure_time
         ELSE 0
       END)/(30*3600) AS "720h",
+    SUM(
+      CASE WHEN e.enclosure_when + 90*86400 >= 0+strftime('%s', 'now')
+        THEN e.enclosure_time
+        ELSE 0
+      END)/(90*3600) AS "2160h",
     SUM(
       e.enclosure_time
     )/(3600*(
