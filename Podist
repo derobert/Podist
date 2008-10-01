@@ -323,9 +323,9 @@ SELECT
       END)/(90*3600) AS "2160h",
     SUM(
       e.enclosure_time
-    )/(3600*(
-      MAX(e.enclosure_time)-MIN(e.enclosure_time)
-    )) AS "4ever"
+    )/((
+      MAX(e.enclosure_when)-MIN(e.enclosure_when)
+    )/24) AS "4ever"
   FROM
     feeds f
     LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
