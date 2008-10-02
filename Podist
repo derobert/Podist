@@ -296,8 +296,8 @@ QUERY
 			outputWidth => 72,
 			headingText => 'New Hours per Day over Various Time Periods'
 	});
-	$tab->setCols(qw(Feed 2d 7d 30d 90d Forever));
-	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d Forever));
+	$tab->setCols(qw(Feed 2d 7d 30d 90d 4ever));
+	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
 	my $sth = DBH->prepare(<<QUERY);
 SELECT
     f.feed_name,
@@ -330,15 +330,17 @@ SELECT
     feeds f
     LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
   GROUP BY f.feed_no
+  ORDER BY "4ever" DESC
 QUERY
 	$sth->execute;
 	my @total = (0)x($sth->{NUM_OF_FIELDS}-1);
 	while (my ($n, @times) = $sth->fetchrow_array) {
-		pairwise { $a += $b } @total, @times;
+		pairwise { our ($a, $b); $a += $b } @total, @times;
 		$tab->addRow($n, map format_perday($_), @times);
 	}
 	$tab->addRowLine;
 	$tab->addRow('TOTAL', map format_perday($_), @total);
+	$tab->addRow('', map sprintf("%im", $_*60), @total);
 	print $tab;
 }
 
