@@ -7,6 +7,7 @@ use File::Find qw(find);
 use File::Path qw(mkpath);
 use File::Slurp qw(write_file);
 use File::Temp qw(tempfile);
+use IPC::Run3;
 use List::MoreUtils qw(pairwise);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
@@ -154,7 +155,7 @@ QUERY
 			}
 
 			my $enc_type = $item->get('enclosure@type');
-			unless ('' eq $enc_type || $enc_type =~ m#^audio/(ogg|mpeg|x-mp3)$ #x) {
+			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio)/(ogg|mpeg|x-mp3|mp3)$ #x) {
 				INFO("Skipping uknown enclosure type $enc_type");
 				next;
 			}
@@ -250,6 +251,7 @@ QUERY
 		given ($ctype) {
 			when ('audio/mpeg')  { $suffix = 'mp3' }
 			when ('audio/x-mp3') { $suffix = 'mp3' } # morons
+			when ('x-audio/mp3') { $suffix = 'mp3' } # idiots
 			when ('audio/ogg')   { $suffix = 'ogg' }
 			default              { $suffix = 'wtf' }
 		}
@@ -414,6 +416,12 @@ sub playlist {
 	my $p_no = DBH->last_insert_id('', '', 'playlists', 'playlist_no')
 		or LOGDIE("Could not get playlist number");
 
+	my $plist_dir = notaint(CONFIG->{storage}{playlistedmedia}."/$p_no");
+	-d $plist_dir
+		or mkpath $plist_dir
+		or LOGDIE("Could not create playlist media directory $plist_dir: $!");
+	TRACE("Using playlist dir $plist_dir");
+
 	my @randoms = find_random_items();
 	my @playlist = ();
 	my @bans;
@@ -427,6 +435,13 @@ sub playlist {
 	my $random_b = CONFIG->{playlist}{randomchanceb};
 	my $random_func = lc(CONFIG->{playlist}{randomchancefunc});
 	my $random_mode = lc(CONFIG->{playlist}{randomchancemode});
+
+	if (CONFIG->{playlist}{announcebegin}) {
+		push @playlist, announce(begin => $plist_dir, {
+			p_no => $p_no,
+			p_next => 1+$p_no,
+		});
+	}
 
 	my $mark = DBH->prepare(<<QUERY);
 UPDATE enclosures
@@ -528,15 +543,22 @@ QUERY
 	@playlist < CONFIG->{playlist}{minimumfiles}
 		and LOGDIE("Playlist has too few files; abort");
 
+	if (CONFIG->{playlist}{announceend}) {
+		push @playlist, announce(end => $plist_dir, {
+			p_no => $p_no,
+			p_next => 1+$p_no,
+		});
+	}
+
 	my $fname = notaint(
 		sprintf("%s/Playlist %03i.m3u", CONFIG->{storage}{playlists}, $p_no));
 	TRACE("Writing playlist $fname");
-	write_file($fname, map $_ =~ m!^/! ? "$_\n" : CONFIG->{storage}{playlistedmedia}."/$_\n", @playlist);
+	write_file($fname, map $_ =~ m!^/! ? "$_\n" : "$plist_dir/$_\n", @playlist);
 	TRACE("Moving files");
 	foreach my $f (@playlist) {
 		next if $f =~ m!^/!; # prob random item
 		my $old = notaint(CONFIG->{storage}{pendingmedia}."/$f");
-		my $new = notaint(CONFIG->{storage}{playlistedmedia}."/$f");
+		my $new = notaint("$plist_dir/$f");
 		
 		-e $new
 			and LOGDIE("WTF - $new already exists");
@@ -545,6 +567,73 @@ QUERY
 			or LOGDIE("could not rename $old to $new");
 	}
 		
+}
+
+sub announce {
+	my ($event, $dir, $subs) = @_;
+
+	$event = lc $event;
+	exists CONFIG->{speech}{message}{$event}
+		or LOGDIE("Tried to announce unconfigured message $event");
+
+	my $msg = CONFIG->{speech}{message}{$event};
+	TRACE("Message for $event: $msg; doing subs");
+
+	$msg =~ s/__(.+?)__/$subs->{lc $1}/ge;
+
+	return speak($msg => $dir);
+}
+
+sub speak {
+	my ($what, $dir) = @_;
+
+	my (undef, $tmp_wav) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.wav');
+
+	TRACE("Speaking $what");
+
+	CONFIG->{speech}{engine} =~ /^festival$/i
+		or LOGDIE("Festival is the only supported TTS engine, sorry.");
+
+	my $voice = CONFIG->{speech}{voice};
+	$voice =~ /^\(?(?:voice_)?([a-z_]+)\)?$/
+		or LOGDIE("Invalid voice syntax: $voice");
+	$voice = "(voice_$voice)";
+
+	my $dBFS = CONFIG->{speech}{volume};
+	$dBFS =~ /^-?(\d+)(?:dbfs)?$/i
+		or LOGDIE("Invalid volume: $dBFS");
+	$dBFS = "-${1}dBFS";
+
+	TRACE("Invoking festival w/ voice $voice");
+	run3 [qw(text2wave -eval), $voice, qw(-f 44100 -o), $tmp_wav], \$what
+		or LOGDIE("text2wave failed: $! $?");
+
+	TRACE("Normalizing output to $dBFS");
+	run3 [qw(normalize-audio -q -a), $dBFS, $tmp_wav]
+		or LOGDIE("normalize-audio failed: $! $?");
+
+	given (CONFIG->{speech}{format}) {
+		when ('wav') { return $tmp_wav }
+		when ('mp3') {
+			my (undef, $tmp_mp3) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.mp3');
+			TRACE("Encoding mp3");
+			run3 [qw(lame --quiet --preset medium), $tmp_wav, $tmp_mp3]
+				or LOGDIE("lame failed: $! $?");
+			unlink $tmp_wav;
+			return $tmp_mp3;
+		}
+		when ('ogg') {
+			my (undef, $tmp_ogg) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.ogg');
+			TRACE("Encoding ogg");
+			run3 [qw(oggenc -Q -q0 -o), $tmp_ogg, $tmp_wav]
+				or LOGDIE("oggenc failed: $! $?");
+			unlink $tmp_wav;
+			return $tmp_ogg;
+		}
+		default { LOGDIE("Uknown format $_") }
+	}
+
+	LOGDIE("Unreachable code reached");
 }
 
 sub all_playlists {
@@ -581,7 +670,7 @@ sub find_random_items {
 	find({
 			wanted => sub {
 				-f -r $File::Find::fullname
-					and push @files, $File::Find::name;
+					and push @files, $File::Find::fullname;
 			},
 			follow  => 1,
 			untaint => 1,
@@ -658,6 +747,9 @@ ERR
 		exit 1;
 	}
 
+	# Untaint the environment
+	$ENV{PATH} = notaint($ENV{PATH});
+
 	# Setup our output directories.
 	setup_dirs();
 
@@ -730,7 +822,7 @@ DataDir $confdir # e.g., \$HOME/.podist
 	#
 	# A valid file is any file that is:
 	#   - the oldest unplaylisted file in its feed, if the feed is ordered
-	#   - any unplayed file in an unordered feed
+	#   - any unplaylisted file in an unordered feed
 	# and does not put more than MaxConsecutive files from the same feed
 	# in a row and does not exceed MaximumPerFeed files from that feed
 	# in the current playlist.
@@ -768,7 +860,34 @@ DataDir $confdir # e.g., \$HOME/.podist
 	# If we insert a random item, does this reset the consecutive same
 	# podcast counter?
 	ResetConsecutive   yes
+
+	# Shall we put an announcement at the beginning and/or end of the
+	# playlists we generate using a TTS (see the speech section below)
+	AnnounceBegin Yes
+	AnnounceEnd   Yes
 </playlist>
+
+<speech>
+	# Which TTS engine shall we use? Currently, only Festival is
+	# supported.
+	Engine Festival
+
+	# The voice to use
+	Voice rab_diphone
+
+	# How loud to make the audio
+	Volume 12dbFS
+
+	# Which format to get the audio in enventually. Options are:
+	#   wav, mp3, ogg (listed largest -> smallest)
+	Format ogg
+
+	# What to say
+	<message>
+		Begin   Start of playlist __CURRENT__
+		End     End of playlist __CURRENT__.
+	</message>
+</speech>
 
 <database>
 	DSN dbi:SQLite:dbname=\$DataDir/podist.db
@@ -793,8 +912,7 @@ CONF
 	#
 	# Unfortunately, we need the string representation of the config (so
 	# we can have comments in it), hopefully this isn't too slow...
-	my $cg_def = new Config::General(
-		-String               => $default_config,
+	my %parse_opts_common = (
 		-AllowMultiOptions    => 0,
 		-LowerCaseNames       => 1,
 		-UseApacheInclude     => 1,
@@ -803,12 +921,17 @@ CONF
 		-IncludeGlob          => 1,
 		-IncludeAgain         => 1,
 		-MergeDuplicateBlocks => 1,
-		-AutoLaunder          => 1,
-		-AutoTrue             => 1,
-		-InterPolateVars      => 1,
-		-InterPolateEnv       => 1,
-		-StrictVars           => 1,
-		-SplitPolicy          => 'whitespace',
+		-AutoLaunder           => 1,
+		-AutoTrue              => 1,
+		-InterPolateVars       => 1,
+		-InterPolateEnv        => 1,
+		-StrictVars            => 1,
+		-SplitPolicy           => 'whitespace',
+
+	);
+	my $cg_def = new Config::General(
+		-String               => $default_config,
+		%parse_opts_common,
 	);
 	my %defs = $cg_def->getall;
 
@@ -816,22 +939,9 @@ CONF
 	# defaults, but oh well.
 	my $cg_conf = new Config::General(
 		-ConfigFile            => $conffile,
-		-AllowMultiOptions     => 0,
-		-LowerCaseNames        => 1,
-		-UseApacheInclude      => 1,
-		-IncludeRelative       => 1,
-		-IncludeDirectories    => 1,
-		-IncludeGlob           => 1,
-		-IncludeAgain          => 1,
-		-MergeDuplicateBlocks  => 1,
 		-MergeDuplicateOptions => 1,
-		-AutoLaunder           => 1,
-		-AutoTrue              => 1,
-		-InterPolateVars       => 1,
-		-InterPolateEnv        => 1,
-		-StrictVars            => 1,
-		-SplitPolicy           => 'whitespace',
 		-DefaultConfig         => \%defs,
+		%parse_opts_common,
 	);
 
 	my $config = { $cg_conf->getall };
