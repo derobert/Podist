@@ -16,6 +16,7 @@ use Ogg::Vorbis::Header;
 use POSIX qw(strftime);
 use Text::ASCIITable;
 use XML::FeedPP;
+use Carp qw(longmess);
 
 use feature 'state';
 use feature 'switch';
@@ -37,7 +38,7 @@ $SIG{__DIE__} = sub {
 		return;
 	}
 	$Log::Log4perl::caller_depth++;
-	LOGDIE @_;
+	LOGDIE longmess(@_);
 };
 
 register_commands();
@@ -140,7 +141,7 @@ QUERY
 			or WARN("Unexpected MIME type $content_type; bad things may happen");
 
 		TRACE("Handing over to the feed parser");
-		my $feed = XML::FeedPP->new($resp->decoded_content);
+		my $feed = XML::FeedPP->new($resp->decoded_content, type => 'string');
 		unless ($feed) {
 			ERROR("Feed parser failed.");
 			next;
@@ -243,7 +244,7 @@ QUERY
 		TRACE("Server's name: $name");
 
 		# Sanitize
-		$name =~ tr/-_.a-z0-9//cd;
+		$name =~ tr/-_.a-zA-Z0-9//cd;
 
 		# Figure filename suffix
 		my $ctype = $resp->content_type;
