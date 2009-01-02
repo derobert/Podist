@@ -277,21 +277,22 @@ sub status {
 			outputWidth => 72,
 			headingText => 'Current Feed Status'
 	});
-	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst');
+	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst', 'Upl');
 	$tab->addRow(@$_) foreach @{DBH->selectall_arrayref(<<QUERY)};
 SELECT
     feed_name,
     COUNT(e.enclosure_no),
     ROUND(SUM(e.enclosure_time)/3600),
-    SUM(CASE WHEN e.enclosure_file IS NOT NULL THEN 100 ELSE 0 END)/COUNT(*),
-    SUM(CASE WHEN e.playlist_no IS NOT NULL THEN 100 ELSE 0 END)/COUNT(*)
+    SUM(CASE WHEN e.enclosure_file IS NULL THEN 0 ELSE 100 END)/COUNT(*),
+    SUM(CASE WHEN e.playlist_no IS NULL THEN 0 ELSE 100 END)/COUNT(*) AS pct,
+    SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END) AS cnt
   FROM
     feeds f
     LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
   WHERE
     e.enclosure_use = 1
   GROUP BY feed_name
-  ORDER BY feed_name
+  ORDER BY CASE cnt WHEN 0 THEN 1 ELSE 0 END, feed_name
 QUERY
 	print $tab, "\n";
 
