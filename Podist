@@ -141,7 +141,13 @@ QUERY
 			or WARN("Unexpected MIME type $content_type; bad things may happen");
 
 		TRACE("Handing over to the feed parser");
-		my $feed = XML::FeedPP->new($resp->decoded_content, type => 'string');
+		my $feed = eval {
+			XML::FeedPP->new($resp->decoded_content, type => 'string');
+		};
+		if ($@) {
+			ERROR("Feed parse exploded: $@");
+			next;
+		}
 		unless ($feed) {
 			ERROR("Feed parser failed.");
 			next;
@@ -156,7 +162,7 @@ QUERY
 			}
 
 			my $enc_type = $item->get('enclosure@type');
-			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio)/(ogg|mpeg|x-mp3|mp3)$ #x) {
+			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio)/(ogg|mpeg|x-mpeg|x-mp3|mp3)$ #x) {
 				INFO("Skipping uknown enclosure type $enc_type");
 				next;
 			}
@@ -216,7 +222,7 @@ sub download {
 	my $sth = DBH->prepare(<<QUERY);
 SELECT enclosure_no, enclosure_url
   FROM enclosures
-  WHERE enclosure_file IS NULL
+  WHERE enclosure_file IS NULL AND enclosure_use = 1
   ORDER BY feed_no, enclosure_when
 QUERY
 	$sth->execute;
@@ -250,11 +256,12 @@ QUERY
 		my $ctype = $resp->content_type;
 		my $suffix;
 		given ($ctype) {
-			when ('audio/mpeg')  { $suffix = 'mp3' }
-			when ('audio/x-mp3') { $suffix = 'mp3' } # morons
-			when ('x-audio/mp3') { $suffix = 'mp3' } # idiots
-			when ('audio/ogg')   { $suffix = 'ogg' }
-			default              { $suffix = 'wtf' }
+			when ('audio/mpeg')   { $suffix = 'mp3' }
+			when ('audio/x-mpeg') { $suffix = 'mp3' }    # retards
+			when ('audio/x-mp3')  { $suffix = 'mp3' }    # morons
+			when ('x-audio/mp3')  { $suffix = 'mp3' }    # idiots
+			when ('audio/ogg')    { $suffix = 'ogg' }
+			default               { $suffix = 'wtf' };
 		}
 		TRACE("Content-Type: $ctype; suffix: $suffix");
 
