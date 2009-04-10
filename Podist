@@ -162,7 +162,7 @@ QUERY
 			}
 
 			my $enc_type = $item->get('enclosure@type');
-			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio)/(ogg|mpeg|x-mpeg|x-mp3|mp3)$ #x) {
+			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio|application)/(ogg|x-ogg|mpeg|x-mpeg|x-mp3|mp3)$ #x) {
 				INFO("Skipping uknown enclosure type $enc_type");
 				next;
 			}
@@ -256,12 +256,15 @@ QUERY
 		my $ctype = $resp->content_type;
 		my $suffix;
 		given ($ctype) {
-			when ('audio/mpeg')   { $suffix = 'mp3' }
-			when ('audio/x-mpeg') { $suffix = 'mp3' }    # retards
-			when ('audio/x-mp3')  { $suffix = 'mp3' }    # morons
-			when ('x-audio/mp3')  { $suffix = 'mp3' }    # idiots
-			when ('audio/ogg')    { $suffix = 'ogg' }
-			default               { $suffix = 'wtf' };
+			when ('audio/mpeg')        { $suffix = 'mp3' }
+			when ('audio/x-mpeg')      { $suffix = 'mp3' }    # retards
+			when ('audio/x-mp3')       { $suffix = 'mp3' }    # morons
+			when ('x-audio/mp3')       { $suffix = 'mp3' }    # idiots
+			when ('audio/ogg')         { $suffix = 'ogg' }
+			when ('audio/x-ogg')       { $suffix = 'ogg' }
+			when ('application/ogg')   { $suffix = 'ogg' }
+			when ('application/x-ogg') { $suffix = 'ogg' }
+			default                    { $suffix = 'wtf' }
 		}
 		TRACE("Content-Type: $ctype; suffix: $suffix");
 
@@ -398,7 +401,6 @@ QUERY
 				}
 			}
 			when ('ogg') {
-				WARN("Ogg length code is untested. Please send reports.");
 				my $ogg = Ogg::Vorbis::Header->new($file);
 				if ($ogg) {
 					$len = $ogg->info('length');
@@ -1084,7 +1086,7 @@ sub USER_AGENT() {
 		);
 
 		$agent->default_header(
-			Accept => 'application/rss+xml, application/atom+xml, audio/ogg, audio/mpeg, application/rdf+xml;q=0.9, application/xml;q=0.8, text/xml;q=0.8, application/ogg;q=0.8, audio/*;q=0.7, */*;q=0.1'
+			Accept => 'application/rss+xml, application/atom+xml, audio/ogg, audio/x-ogg, audio/mpeg, application/rdf+xml;q=0.9, application/xml;q=0.8, text/xml;q=0.8, application/ogg;q=0.8, audio/*;q=0.7, */*;q=0.1'
 		);
 	}
 
