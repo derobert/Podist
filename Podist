@@ -314,8 +314,7 @@ QUERY
 	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
 	my $sth = DBH->prepare(<<QUERY);
 SELECT
-    CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END
-    || f.feed_name ,
+    CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END || f.feed_name,
     SUM(
       CASE WHEN e.enclosure_when + 2*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
