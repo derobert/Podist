@@ -314,7 +314,8 @@ QUERY
 	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
 	my $sth = DBH->prepare(<<QUERY);
 SELECT
-    f.feed_name,
+    CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END
+    || f.feed_name ,
     SUM(
       CASE WHEN e.enclosure_when + 2*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
@@ -335,11 +336,14 @@ SELECT
         THEN e.enclosure_time
         ELSE 0
       END)/(90*3600) AS "2160h",
-    SUM(
-      e.enclosure_time
-    )/((
-      MAX(e.enclosure_when)-MIN(e.enclosure_when)
-    )/24) AS "4ever"
+    CASE WHEN f.feed_enabled = 1 THEN
+      SUM(
+        e.enclosure_time
+      )/((
+        MAX(e.enclosure_when)-MIN(e.enclosure_when)
+      )/24)
+    ELSE 0
+    END AS "4ever"
   FROM
     feeds f
     LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
