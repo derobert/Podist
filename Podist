@@ -27,6 +27,16 @@ sub CONFIG();     # defined by setup
 sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
 
+my %SUFFIX_MAP = (
+	'audio/mpeg'        => 'mp3',
+	'audio/x-mpeg'      => 'mp3',    # retards
+	'audio/x-mp3'       => 'mp3',    # morons
+	'x-audio/mp3'       => 'mp3',    # idiots
+	'audio/ogg'         => 'ogg',
+	'audio/x-ogg'       => 'ogg',
+	'application/ogg'   => 'ogg',
+	'application/x-ogg' => 'ogg',
+);
 
 setup();
 
@@ -253,19 +263,17 @@ QUERY
 		$name =~ tr/-_.a-zA-Z0-9//cd;
 
 		# Figure filename suffix
-		my $ctype = $resp->content_type;
+		my $ctype = lc $resp->content_type;
 		my $suffix;
-		given ($ctype) {
-			when ('audio/mpeg')        { $suffix = 'mp3' }
-			when ('audio/x-mpeg')      { $suffix = 'mp3' }    # retards
-			when ('audio/x-mp3')       { $suffix = 'mp3' }    # morons
-			when ('x-audio/mp3')       { $suffix = 'mp3' }    # idiots
-			when ('audio/ogg')         { $suffix = 'ogg' }
-			when ('audio/x-ogg')       { $suffix = 'ogg' }
-			when ('application/ogg')   { $suffix = 'ogg' }
-			when ('application/x-ogg') { $suffix = 'ogg' }
-			default                    { $suffix = 'wtf' }
+		if (exists $SUFFIX_MAP{$ctype}) {
+			$suffix = $SUFFIX_MAP{$ctype};
+		} elsif ('text/plain' eq $ctype && $name =~ /\.(mp3|ogg)$/) {
+			$suffix = $1;
+			WARN("Server broken; $enc_url gave us text/plain for $suffix");
+		} else {
+			$suffix = 'wtf';
 		}
+
 		TRACE("Content-Type: $ctype; suffix: $suffix");
 
 		$name =~ /\.$suffix$/
