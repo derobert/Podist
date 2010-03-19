@@ -381,6 +381,7 @@ SELECT enclosure_no, enclosure_file
   WHERE
     enclosure_file IS NOT NULL
     AND enclosure_time IS NULL
+    AND enclosure_use = 1
 QUERY
 
 	my $upd = DBH->prepare(<<QUERY);
