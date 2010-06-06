@@ -3,6 +3,7 @@
 use Config::General;
 use Data::Dumper;
 use DBI;
+use Digest;
 use File::Find qw(find);
 use File::Path qw(mkpath);
 use File::Slurp qw(write_file);
@@ -87,6 +88,9 @@ sub register_commands {
 			fetch     => \&fetch,
 			download  => \&download,
 			stopwatch => \&stopwatch,
+			hash      => \&hasherize,
+			hasherize => \&hasherize,
+			originalize => \&originalize,
 
 			playlist  => \&playlist,
 			all_playlists => \&all_playlists,
@@ -111,6 +115,8 @@ sub catch {
 	fetch();
 	download();
 	stopwatch();
+	hasherize();
+	originalize();
 }
 
 sub fetch {
@@ -372,6 +378,88 @@ QUERY
 sub format_perday {
 	my $r = sprintf('%04.2f', $_[0]);
 	'0.00' eq $r ? $_[0] == 0 ? '' : 'T' : $r;
+}
+
+sub find_file {
+	my ($name, $playlist_no) = @_;
+	my $d_pending = CONFIG->{storage}{pendingmedia};
+	my $d_plist = CONFIG->{storage}{playlistedmedia};
+	my $full_name;
+	if (defined $playlist_no) {
+		$full_name = (-e "$d_plist/$playlist_no/$name")
+			? "$d_plist/$playlist_no/$name"
+			: "$d_plist/$name";
+	} else {
+		$full_name = "$d_pending/$name";
+	}
+
+	return (-e $full_name) ? $full_name : undef;
+}
+
+sub hasherize {
+	my $sth = DBH->prepare(<<QUERY);
+SELECT enclosure_no, enclosure_file, playlist_no
+  FROM enclosures
+  WHERE
+    enclosure_file IS NOT NULL
+    AND enclosure_hash IS NULL
+QUERY
+
+	my $upd = DBH->prepare(<<QUERY);
+UPDATE enclosures
+  SET enclosure_hash = ?
+  WHERE enclosure_no = ?
+QUERY
+
+	TRACE("Finding media without hash in db");
+	$sth->execute;
+
+	my $ctx = Digest->new('SHA-256')
+		or LOGDIE("Couldn't get SHA-256 digest");
+	while (my ($enc_no, $enc_file, $enc_plist) = $sth->fetchrow_array) {
+		my $file = find_file($enc_file, $enc_plist);
+		unless (defined $file) {
+			WARN("Couldn't find file for #$enc_no ($enc_file)");
+			next;
+		}
+
+		$ctx->reset;
+		if (open my $fh, '<:raw', $file) {
+			$ctx->addfile($fh);
+			close $fh or LOGDIE("Close on $file failed: $!");
+		} else {
+			ERROR("Could not open $file: $!");
+			next;
+		}
+		my $hash = 'sha256:' . $ctx->b64digest;
+
+		TRACE("$enc_file: $hash");
+		$upd->execute($hash, $enc_no);
+	}
+}
+
+sub originalize {
+	TRACE("Marking duplicates as don't use.");
+	my $dups = DBH->selectall_arrayref(<<QUERY);
+SELECT DISTINCT
+    e2.enclosure_no, e2.enclosure_file
+  FROM
+    enclosures e1 JOIN enclosures e2 ON (
+      e1.enclosure_hash = e2.enclosure_hash
+    )
+  WHERE
+    e1.enclosure_no < e2.enclosure_no 
+    AND e1.enclosure_use = 1 AND e2.enclosure_use = 1
+    AND e2.playlist_no IS NULL
+QUERY
+	
+	my $mark = DBH->prepare(<<QUERY);
+UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?
+QUERY
+	foreach my $dup (@$dups) {
+		TRACE("Duplicate: $dup->[1]; setting enclosure_use=0");
+		$mark->execute($dup->[0]);
+	}
 }
 
 sub stopwatch {
@@ -727,6 +815,14 @@ Commands are:
       Downloads enclosures that are in the database (from fetch) but not
       yet downloaded.
 
+   hash
+      Calculates the hash for each downloaded podcast and stores this in
+      the database. The hash is used to catch duplicates.
+
+   originalize
+      Finds duplicate podcasts based on their hash, and marks the second
+      (and third, etc.) copies such that they won't be used.
+
    stopwatch
       Calculates how long each downloaded podcast is, and stores this
       information in the database.
@@ -1034,6 +1130,7 @@ CREATE TABLE enclosures (
   feed_no          INTEGER   NOT NULL REFERENCES feeds,
   enclosure_url    TEXT      NOT NULL UNIQUE,
   enclosure_file   TEXT      NULL UNIQUE,
+  enclosure_hash   TEXT      NULL,
   enclosure_when   INTEGER   NOT NULL, -- unix timestamp
   enclosure_time   REAL      NULL, -- length in seconds
   enclosure_use    INTEGER   NOT NULL DEFAULT 1,
@@ -1042,6 +1139,9 @@ CREATE TABLE enclosures (
   UNIQUE(playlist_no, playlist_so),
   CONSTRAINT use_is_bool CHECK (enclosure_use IN (0,1))
 )
+SQL
+		$dbh->do(<<SQL);
+CREATE INDEX enclosusures_enclosure_hash ON enclosures(enclosure_hash)
 SQL
 		$dbh->do(<<SQL);
 CREATE VIEW oldest_unplayed AS
