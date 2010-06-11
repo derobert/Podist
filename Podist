@@ -361,12 +361,13 @@ SELECT
     feeds f
     LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
   GROUP BY f.feed_no
-  ORDER BY "4ever" DESC
+  ORDER BY
+    f.feed_enabled DESC, "4ever" DESC
 QUERY
 	$sth->execute;
 	my @total = (0)x($sth->{NUM_OF_FIELDS}-1);
 	while (my ($n, @times) = $sth->fetchrow_array) {
-		pairwise { our ($a, $b); $a += $b } @total, @times;
+		pairwise { our ($a, $b); $a += ($b // 0) } @total, @times;
 		$tab->addRow($n, map format_perday($_), @times);
 	}
 	$tab->addRowLine;
@@ -376,6 +377,8 @@ QUERY
 }
 
 sub format_perday {
+	defined $_[0]
+		or return 'N/A';
 	my $r = sprintf('%04.2f', $_[0]);
 	'0.00' eq $r ? $_[0] == 0 ? '' : 'T' : $r;
 }
