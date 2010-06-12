@@ -359,7 +359,9 @@ SELECT
     END AS "4ever"
   FROM
     feeds f
-    LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
+    LEFT JOIN enclosures e ON (
+      f.feed_no = e.feed_no AND e.enclosure_use = 1
+    )
   GROUP BY f.feed_no
   ORDER BY
     f.feed_enabled DESC, "4ever" DESC
