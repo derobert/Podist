@@ -273,9 +273,20 @@ QUERY
 		my $suffix;
 		if (exists $SUFFIX_MAP{$ctype}) {
 			$suffix = $SUFFIX_MAP{$ctype};
-		} elsif ('text/plain' eq $ctype && $name =~ /\.(mp3|ogg)$/) {
-			$suffix = $1;
-			WARN("Server broken; $enc_url gave us text/plain for $suffix");
+		} elsif ($name =~ /\.(mp3|ogg)$/) {
+			if ('text/plain' eq $ctype) {
+				$suffix = $1;
+				WARN("Server broken; $enc_url gave us text/plain for $suffix");
+			} elsif (-1 == index($ctype, '/')) {
+				# seems podcastdownload.npr.org often gives a date(!) in
+				# the content-type header. WTF. Confirmed with
+				# Wireshark. But its only sometimes...
+				$suffix = $1;
+				WARN("Server broken; $enc_url gave WTF $ctype for $suffix");
+			} else {
+				$suffix = 'wtf';
+				ERROR("Got $ctype for $suffix at $enc_url; will not use...");
+			}
 		} else {
 			$suffix = 'wtf';
 		}
