@@ -473,7 +473,7 @@ QUERY
 UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?
 QUERY
 	foreach my $dup (@$dups) {
-		TRACE("Duplicate: $dup->[1]; setting enclosure_use=0");
+		INFO("Duplicate: $dup->[1]; setting enclosure_use=0");
 		$mark->execute($dup->[0]);
 	}
 }
