@@ -142,7 +142,7 @@ INSERT INTO enclosures (
 QUERY
 
 	while (my ($feed_no, $feed_name, $feed_url) = $sth->fetchrow_array) {
-		TRACE("Fetching $feed_name (feed#$feed_no)");
+		INFO("Fetching $feed_name (feed#$feed_no)");
 		my $resp = USER_AGENT->get($feed_url);
 		unless ($resp->is_success) {
 			ERROR("Downloading of $feed_name from $feed_url failed:");
@@ -152,7 +152,7 @@ QUERY
 		}
 
 		my $content_type = $resp->content_type;
-		TRACE("Content-Type: $content_type");
+		DEBUG("Content-Type: $content_type");
 		$content_type =~ m#^(application/((rss|atom|rdf)\+)?xml)|(text/xml)$ #x
 			or WARN("Unexpected MIME type $content_type; bad things may happen");
 
@@ -273,7 +273,7 @@ QUERY
 		}
 
 		my $name = $resp->filename;
-		TRACE("Server's name: $name");
+		DEBUG("Server's name: $name");
 
 		# Sanitize
 		$name =~ tr/-_.a-zA-Z0-9//cd;
@@ -301,7 +301,7 @@ QUERY
 			$suffix = 'wtf';
 		}
 
-		TRACE("Content-Type: $ctype; suffix: $suffix");
+		DEBUG("Content-Type: $ctype; suffix: $suffix");
 
 		$name =~ /\.$suffix$/
 			or $name .= ".$suffix";
@@ -310,7 +310,7 @@ QUERY
 		$name = sprintf("%04i_%s", $enc_no, $name);
 
 		# Rename
-		TRACE("Renaming to: $name");
+		DEBUG("Renaming to: $name");
 		rename($tmp, notaint("$dir/$name"));
 
 		$upd->execute($name, $enc_no);
@@ -542,7 +542,7 @@ QUERY
 		defined $len && 0 == $len
 			and WARN("Got length of 0 for $file; probably wrong!");
 
-		TRACE("$enc_file: " . (defined $len ? $len : 'undef'));
+		DEBUG("$enc_file: " . (defined $len ? $len : 'undef'));
 		$upd->execute($len, $enc_no);
 	}
 }
@@ -689,7 +689,7 @@ QUERY
 
 	my $fname = notaint(
 		sprintf("%s/Playlist %03i.m3u", CONFIG->{storage}{playlists}, $p_no));
-	TRACE("Writing playlist $fname");
+	DEBUG("Writing playlist $fname");
 	write_file($fname, map $_ =~ m!^/! ? "$_\n" : "$plist_dir/$_\n", @playlist);
 	TRACE("Moving files");
 	foreach my $f (@playlist) {
