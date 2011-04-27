@@ -262,6 +262,16 @@ QUERY
 			next;
 		}
 
+		my $exp_len = $resp->header('Content-Length');
+		my $act_len = -s $tmp;
+		if (defined $exp_len && $exp_len != $act_len) {
+			# Thank you, Virginia Foundation for the Humanities.
+			ERROR("Download truncated; expected $exp_len but got $act_len");
+			ERROR("Run Podist download to try this one again");
+			unlink($tmp);
+			next;
+		}
+
 		my $name = $resp->filename;
 		TRACE("Server's name: $name");
 
