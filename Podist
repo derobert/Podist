@@ -152,7 +152,7 @@ QUERY
 		}
 
 		my $content_type = $resp->content_type;
-		DEBUG("Content-Type: $content_type");
+		TRACE("Content-Type: $content_type");
 		$content_type =~ m#^(application/((rss|atom|rdf)\+)?xml)|(text/xml)$ #x
 			or WARN("Unexpected MIME type $content_type; bad things may happen");
 
@@ -172,14 +172,17 @@ QUERY
 		my ($date_last1, $date_last2);
 		foreach my $item ($feed->get_item) {
 			my $enc_url = $item->get('enclosure@url');
+			(my $item_title = $item->title) =~ y/\x0a\x0d/ /;
+			$item_title =~ s/^\s+//;
+			$item_title =~ s/\s+$//;
 			unless ($enc_url) {
-				DEBUG("Item ".$item->title." has no enclosure");
+				DEBUG("Item $item_title has no enclosure");
 				next;
 			}
 
 			my $enc_type = $item->get('enclosure@type');
 			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio|application)/(ogg|x-ogg|mpeg|x-mpeg|x-mp3|mp3)$ #x) {
-				INFO("Skipping uknown enclosure type $enc_type");
+				INFO("Skipping $item_title (uknown enclosure type $enc_type)");
 				next;
 			}
 
