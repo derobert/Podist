@@ -359,6 +359,7 @@ QUERY
 	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
 	my $sth = DBH->prepare(<<QUERY);
 SELECT
+    f.feed_enabled,
     CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END || f.feed_name,
     SUM(
       CASE WHEN e.enclosure_when + 2*86400 >= 0+strftime('%s', 'now')
@@ -394,12 +395,18 @@ SELECT
       f.feed_no = e.feed_no AND e.enclosure_use = 1
     )
   GROUP BY f.feed_no
+  HAVING
+    f.feed_enabled = 1
+    OR "48h" > 0
+    OR "168h" > 0
+    OR "720h" > 0
+    OR "2160h" > 0
   ORDER BY
     f.feed_enabled DESC, "4ever" DESC
 QUERY
 	$sth->execute;
-	my @total = (0)x($sth->{NUM_OF_FIELDS}-1);
-	while (my ($n, @times) = $sth->fetchrow_array) {
+	my @total = (0)x($sth->{NUM_OF_FIELDS}-2);
+	while (my (undef, $n, @times) = $sth->fetchrow_array) {
 		pairwise { our ($a, $b); $a += ($b // 0) } @total, @times;
 		$tab->addRow($n, map format_perday($_), @times);
 	}
