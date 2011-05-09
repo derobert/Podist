@@ -342,7 +342,7 @@ SELECT
     feeds f
     LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
   WHERE
-    e.enclosure_use = 1
+    COALESCE(e.enclosure_use,1) = 1
   GROUP BY feed_name
   ORDER BY CASE cnt WHEN 0 THEN 1 ELSE 0 END, LOWER(feed_name)
 QUERY
