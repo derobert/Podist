@@ -330,8 +330,9 @@ sub status {
 			headingText => 'Current Feed Status'
 	});
 	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst', 'Upl');
-	$tab->addRow(@$_) foreach @{DBH->selectall_arrayref(<<QUERY)};
+	$tab->addRow(@$_[1..6]) foreach @{DBH->selectall_arrayref(<<QUERY)};
 SELECT
+	feed_enabled,
     feed_name,
     COUNT(e.enclosure_no),
     ROUND(SUM(e.enclosure_time)/3600),
@@ -344,6 +345,8 @@ SELECT
   WHERE
     COALESCE(e.enclosure_use,1) = 1
   GROUP BY feed_name
+  HAVING
+    f.feed_enabled = 1 OR cnt > 0
   ORDER BY CASE cnt WHEN 0 THEN 1 ELSE 0 END, LOWER(feed_name)
 QUERY
 	print $tab, "\n";
