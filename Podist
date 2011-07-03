@@ -184,7 +184,7 @@ QUERY
 			}
 
 			my $enc_type = $item->get('enclosure@type');
-			unless ('' eq $enc_type || $enc_type =~ m#^(audio|x-audio|application)/(ogg|x-ogg|mpeg|x-mpeg|x-mp3|mp3)$ #x) {
+			unless (!defined $enc_type || '' eq $enc_type || $enc_type =~ m#^(audio|x-audio|application)/(ogg|x-ogg|mpeg|x-mpeg|x-mp3|mp3)$ #x) {
 				my $msg = "Skipping $item_title (uknown enclosure type $enc_type)";
 				$all_audio ? WARN($msg) : TRACE($msg);
 				next;
