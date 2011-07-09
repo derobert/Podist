@@ -591,8 +591,8 @@ sub playlist {
 
 	if (CONFIG->{playlist}{announcebegin}) {
 		push @playlist, announce(begin => $plist_dir, {
-			p_no => $p_no,
-			p_next => 1+$p_no,
+			current => $p_no,
+			next => 1+$p_no,
 		});
 	}
 
@@ -699,8 +699,8 @@ QUERY
 	if ((my $ll = CONFIG->{playlist}{leadoutlength}) > 0) {
 		if (CONFIG->{playlist}{announceleadout}) {
 			push @playlist, announce(leadout => $plist_dir, {
-				p_no => $p_no,
-				p_next => 1+$p_no,
+				current => $p_no,
+				next => 1+$p_no,
 			});
 		}
 
@@ -713,8 +713,8 @@ QUERY
 
 	if (CONFIG->{playlist}{announceend}) {
 		push @playlist, announce(end => $plist_dir, {
-			p_no => $p_no,
-			p_next => 1+$p_no,
+			current => $p_no,
+			next => 1+$p_no,
 		});
 	}
 
@@ -734,6 +734,7 @@ QUERY
 		rename($old, $new)
 			or LOGDIE("could not rename $old to $new");
 	}
+	LOGDIE("OHNOES");
 }
 
 sub get_one_random {
@@ -1049,14 +1050,26 @@ DataDir $confdir # e.g., \$HOME/.podist
 	RandomChanceMode   Time
 	RandomChanceM      1/7200
 	RandomChanceB      0.2
+	
+	# How often should we use \$RandomMedia vs. feeds marked as music in
+	# the database? 0 is always \$RandomMedia, 1 is always music feeds.
+	# Note that if there aren't any unplayed items in music feeds, will
+	# fall back to \$RandomMedia. (Note: music feeds always use
+	# ChoiceMethod random)
+	RandomFeedRatio    1/3
 
 	# If we insert a random item, does this reset the consecutive same
 	# podcast counter?
 	ResetConsecutive   yes
 
+	# Specify how many random items to play after the end of podcasts on
+	# a playlist (so you don't have to switch while driving)
+	LeadoutLength 5
+
 	# Shall we put an announcement at the beginning and/or end of the
 	# playlists we generate using a TTS (see the speech section below)
 	AnnounceBegin Yes
+	AnnounceLeadout Yes
 	AnnounceEnd   Yes
 </playlist>
 
@@ -1077,7 +1090,8 @@ DataDir $confdir # e.g., \$HOME/.podist
 
 	# What to say
 	<message>
-		Begin   Start of playlist __CURRENT__
+		Begin   Start of playlist __CURRENT__.
+		Leadout End of podcasts in playlist __CURRENT__.
 		End     End of playlist __CURRENT__.
 	</message>
 </speech>
