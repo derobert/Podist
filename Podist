@@ -696,6 +696,21 @@ QUERY
 	@playlist < CONFIG->{playlist}{minimumfiles}
 		and LOGDIE("Playlist has too few files; abort");
 
+	if ((my $ll = CONFIG->{playlist}{leadoutlength}) > 0) {
+		if (CONFIG->{playlist}{announceleadout}) {
+			push @playlist, announce(leadout => $plist_dir, {
+				p_no => $p_no,
+				p_next => 1+$p_no,
+			});
+		}
+
+		for (1..$ll) {
+			my $item = get_one_random(\@randoms);
+			DEBUG("Adding leadout item $item");
+			push @playlist, $item;
+		}
+	}
+
 	if (CONFIG->{playlist}{announceend}) {
 		push @playlist, announce(end => $plist_dir, {
 			p_no => $p_no,
@@ -726,6 +741,7 @@ sub get_one_random {
 	my $rmedia = $randoms->[int rand @$randoms];
 
 	return $rmedia if rand() >= CONFIG->{playlist}{randomfeedratio};
+	return $rmedia unless defined $mark;
 	return $rmedia
 		unless my ($enc_no, $enc_file) = DBH->selectrow_array(<<QUERY);
 SELECT enclosure_no, enclosure_file
