@@ -674,7 +674,7 @@ QUERY
 		my $chance = $x * $random_m + $random_b;
 		TRACE("Random chance = $chance");
 		if (rand() < $chance) {
-			my $item = $randoms[int rand @randoms];
+			my $item = get_one_random(\@randoms, $mark, $p_no, 1+@playlist);
 			DEBUG("Adding random item $item");
 			push @playlist, $item;
 
@@ -720,7 +720,23 @@ QUERY
 		rename($old, $new)
 			or LOGDIE("could not rename $old to $new");
 	}
-		
+}
+
+sub get_one_random {
+	my ($randoms, $mark, $p_no, $p_pos) = @_;
+	my $rmedia = $randoms->[int rand @$randoms];
+
+	return $rmedia if rand() >= CONFIG->{playlist}{randomfeedratio};
+	return $rmedia
+		unless my ($enc_no, $enc_file) = DBH->selectrow_array(<<QUERY);
+SELECT enclosure_no, enclosure_file
+  FROM valids
+  WHERE feed_is_music = 1
+  ORDER BY random()
+  LIMIT 1
+QUERY
+	$mark->execute($p_no, $p_pos, $enc_no);
+	return $enc_file;
 }
 
 sub announce {
@@ -814,7 +830,7 @@ sub playlist_valid_where {
 		$time_constraint = "enclosure_time <= $mx";
 	};
 
-	return "$not_in AND $time_constraint";
+	return "$not_in AND $time_constraint AND feed_is_music = 0";
 }
 
 sub find_random_items {
@@ -1158,9 +1174,11 @@ CREATE TABLE feeds (
   feed_enabled   INTEGER   NOT NULL DEFAULT 1,
   feed_ordered   INTEGER   NOT NULL DEFAULT 1,
   feed_all_audio INTEGER   NOT NULL DEFAULT 1,
+  feed_is_music  INTEGER   NOT NULL DEFAULT 0,
   CONSTRAINT enabled_is_bool CHECK (feed_enabled IN (0,1)),
-  CONSTRAINT ordered_is_bool CHECK (feed_ordered IN (0,1))
-  CONSTRAINT all_audio_is_bool CHECK (feed_all_audio IN (0,1))
+  CONSTRAINT ordered_is_bool CHECK (feed_ordered IN (0,1)),
+  CONSTRAINT all_audio_is_bool CHECK (feed_all_audio IN (0,1)),
+  CONSTRAINT is_music_is_bool CHECK (feed_is_music IN (0,1))
 )
 SQL
 		$dbh->do(<<SQL);
@@ -1202,6 +1220,7 @@ SQL
 CREATE VIEW valids AS
   SELECT
     f.feed_ordered    AS feed_ordered,
+    f.feed_is_music   AS feed_is_music,
     e.enclosure_no    AS enclosure_no,
     e.feed_no         AS feed_no,
     e.enclosure_url   AS enclosure_url,
