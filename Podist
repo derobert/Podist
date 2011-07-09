@@ -587,7 +587,6 @@ sub playlist {
 	my $since_rand_time = 0;
 	my $random_m = CONFIG->{playlist}{randomchancem};
 	my $random_b = CONFIG->{playlist}{randomchanceb};
-	my $random_func = lc(CONFIG->{playlist}{randomchancefunc});
 	my $random_mode = lc(CONFIG->{playlist}{randomchancemode});
 
 	if (CONFIG->{playlist}{announcebegin}) {
