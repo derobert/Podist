@@ -734,7 +734,6 @@ QUERY
 		rename($old, $new)
 			or LOGDIE("could not rename $old to $new");
 	}
-	LOGDIE("OHNOES");
 }
 
 sub get_one_random {
