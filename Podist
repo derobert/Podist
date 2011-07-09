@@ -1163,8 +1163,8 @@ CONF
 			and $config->{playlist}{$v} = $1 * 3600;
 	}
 
-	# change fractions for RandomChanceM and RandomChanceB to decimals
-	foreach my $v (qw(randomchancem randomchanceb)) {
+	# change fractions for to decimals
+	foreach my $v (qw(randomchancem randomchanceb randomfeedratio)) {
 		$config->{playlist}{$v} =~ m!(\d+)/(\d+)!
 			and $config->{playlist}{$v} = $1/$2;
 	}
