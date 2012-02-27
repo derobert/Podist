@@ -160,7 +160,10 @@ QUERY
 
 		TRACE("Handing over to the feed parser");
 		my $feed = eval {
-			XML::FeedPP->new($resp->decoded_content, type => 'string');
+			# workaround bug 661551
+			my $content = $resp->decoded_content;
+			$content =~ s/^\x{FEFF}//;
+			XML::FeedPP->new($content, type => 'string');
 		};
 		if ($@) {
 			ERROR("Feed parse exploded: $@");
