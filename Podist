@@ -14,7 +14,7 @@ use List::MoreUtils qw(pairwise);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
-use Ogg::Vorbis::Header;
+use Ogg::Vorbis::Header::PurePerl;
 use POSIX qw(strftime);
 use Text::ASCIITable;
 use XML::FeedPP;
@@ -585,7 +585,7 @@ QUERY
 				}
 			}
 			when ('ogg') {
-				my $ogg = Ogg::Vorbis::Header->new($file);
+				my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
 				if ($ogg) {
 					$len = $ogg->info('length');
 				} else {
