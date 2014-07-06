@@ -203,10 +203,9 @@ QUERY
 			}
 			$check->finish; # just in case
 
-			DEBUG("Adding $enc_url from ".$item->title);
 			my $date = $item->get_pubDate_epoch;
 			if (!$date) {
-				ERROR("get_pubDate_epoch failed");
+				ERROR("@{[ $item->title ]}: get_pubDate_epoch failed");
 				if (defined $date_last2) {
 					if ($date_last2 > $date_last1) {
 						# podcast is most-recent first
@@ -236,6 +235,9 @@ QUERY
 						. ".\nDo you know where your podcasts are?");
 			}
 			$ins->execute($feed_no, $enc_url, $date);
+			my $dbg_id
+				= DBH->last_insert_id('', '', 'enclosures', 'enclosure_no');
+			DEBUG("Added id=$dbg_id, url=$enc_url: @{[ $item->title ]}");
 			$date_last2 = $date_last1;
 			$date_last1 = $date;
 		}
