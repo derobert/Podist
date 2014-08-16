@@ -139,8 +139,8 @@ QUERY
 
 	my $ins = DBH->prepare(<<QUERY);
 INSERT INTO enclosures (
-  feed_no, enclosure_url, enclosure_when
-) VALUES (?, ?, ?)
+  feed_no, first_title, enclosure_url, enclosure_when
+) VALUES (?, ?, ?, ?)
 QUERY
 
 	while (my ($feed_no, $feed_name, $feed_url, $all_audio)
@@ -234,7 +234,7 @@ QUERY
 						. strftime("%F %H:%M:%S %Z", localtime($date))
 						. ".\nDo you know where your podcasts are?");
 			}
-			$ins->execute($feed_no, $enc_url, $date);
+			$ins->execute($feed_no, $item->title, $enc_url, $date);
 			my $dbg_id
 				= DBH->last_insert_id('', '', 'enclosures', 'enclosure_no');
 			DEBUG("Added id=$dbg_id, url=$enc_url: @{[ $item->title ]}");
@@ -1269,6 +1269,7 @@ SQL
 CREATE TABLE enclosures (
   enclosure_no     INTEGER   NOT NULL PRIMARY KEY,
   feed_no          INTEGER   NOT NULL REFERENCES feeds,
+  first_title      TEXT      NULL,
   enclosure_url    TEXT      NOT NULL UNIQUE,
   enclosure_file   TEXT      NULL UNIQUE,
   enclosure_hash   TEXT      NULL,
@@ -1301,6 +1302,7 @@ CREATE VIEW valids AS
     f.feed_is_music   AS feed_is_music,
     e.enclosure_no    AS enclosure_no,
     e.feed_no         AS feed_no,
+    e.first_title     AS first_title,
     e.enclosure_url   AS enclosure_url,
     e.enclosure_file  AS enclosure_file,
     e.enclosure_when  AS enclosure_when,
