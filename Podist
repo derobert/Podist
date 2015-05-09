@@ -1,4 +1,4 @@
-#!/usr/bin/perl -Tw
+#!/usr/bin/perl -w
 
 use Config::General;
 use Data::Dumper;
@@ -20,11 +20,15 @@ use Text::ASCIITable;
 use XML::FeedPP;
 use Carp qw(longmess);
 
+use FindBin;
+use lib "$FindBin::Bin/lib";
+use Podist::Database;
+
 use feature 'state';
 use feature 'switch';
 use strict;
 
-sub DBH();        # defined by setup
+my $DB;           # set by setup
 sub CONFIG();     # defined by setup
 sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
@@ -75,7 +79,7 @@ sub go {
 	COMMAND->{$cmd}(@ARGV);
 
 	TRACE("Command done; committing");
-	DBH->commit();
+	$DB->commit();
 }
 
 sub register_commands {
@@ -108,7 +112,7 @@ sub register_commands {
 sub add_podcast {
 	my ($name, $url) = @_;
 
-	DBH->do(<<QUERY, {}, $name, $url);
+	$DB->do(<<QUERY, {}, $name, $url);
 INSERT INTO feeds(feed_name, feed_url) VALUES(?, ?)
 QUERY
 }
@@ -123,7 +127,7 @@ sub catch {
 
 sub fetch {
 	TRACE("Finding enabled feeds in db");
-	my $sth = DBH->prepare(<<QUERY);
+	my $sth = $DB->prepare(<<QUERY);
 SELECT
     feed_no, feed_name, feed_url, feed_all_audio
   FROM feeds
@@ -132,12 +136,12 @@ SELECT
 QUERY
 	$sth->execute;
 
-	my $check = DBH->prepare(<<QUERY);
+	my $check = $DB->prepare(<<QUERY);
 SELECT 1 FROM enclosures
   WHERE enclosure_url = ?
 QUERY
 
-	my $ins = DBH->prepare(<<QUERY);
+	my $ins = $DB->prepare(<<QUERY);
 INSERT INTO enclosures (
   feed_no, first_title, enclosure_url, enclosure_when
 ) VALUES (?, ?, ?, ?)
@@ -236,7 +240,7 @@ QUERY
 			}
 			$ins->execute($feed_no, $item->title, $enc_url, $date);
 			my $dbg_id
-				= DBH->last_insert_id('', '', 'enclosures', 'enclosure_no');
+				= $DB->last_insert_id('', '', 'enclosures', 'enclosure_no');
 			DEBUG("Added id=$dbg_id, url=$enc_url: @{[ $item->title ]}");
 			$date_last2 = $date_last1;
 			$date_last1 = $date;
@@ -249,7 +253,7 @@ sub download {
 	# connections (HTTP Keepalive). Sort by the date to give the user a
 	# predictable order.
 	TRACE("Finding undownloaded media");
-	my $sth = DBH->prepare(<<QUERY);
+	my $sth = $DB->prepare(<<QUERY);
 SELECT enclosure_no, enclosure_url
   FROM enclosures
   WHERE enclosure_file IS NULL AND enclosure_use = 1
@@ -257,7 +261,7 @@ SELECT enclosure_no, enclosure_url
 QUERY
 	$sth->execute;
 
-	my $upd = DBH->prepare(<<QUERY);
+	my $upd = $DB->prepare(<<QUERY);
 UPDATE enclosures
   SET enclosure_file = ?
   WHERE enclosure_no = ?
@@ -337,7 +341,7 @@ sub status {
 			headingText => 'Current Feed Status'
 	});
 	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst', 'Upl');
-	$tab->addRow(@$_[1..6]) foreach @{DBH->selectall_arrayref(<<QUERY)};
+	$tab->addRow(@$_[1..6]) foreach @{$DB->selectall_arrayref(<<QUERY)};
 SELECT
 	feed_enabled,
     feed_name,
@@ -364,7 +368,7 @@ QUERY
 	});
 	$tab->setCols(qw(Feed 2d 7d 30d 90d 4ever));
 	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
-	my $sth = DBH->prepare(<<QUERY);
+	my $sth = $DB->prepare(<<QUERY);
 SELECT
     f.feed_enabled,
     CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END || f.feed_name,
@@ -452,7 +456,7 @@ sub cleanup {
 	
 	hasherize(); # make sure we have the hash before moving the file
 
-	my $sth = DBH->prepare(<<QUERY);
+	my $sth = $DB->prepare(<<QUERY);
 SELECT enclosure_file
   FROM enclosures
   WHERE
@@ -483,7 +487,7 @@ QUERY
 }
 
 sub hasherize {
-	my $sth = DBH->prepare(<<QUERY);
+	my $sth = $DB->prepare(<<QUERY);
 SELECT enclosure_no, enclosure_file, playlist_no
   FROM enclosures
   WHERE
@@ -491,7 +495,7 @@ SELECT enclosure_no, enclosure_file, playlist_no
     AND enclosure_hash IS NULL
 QUERY
 
-	my $upd = DBH->prepare(<<QUERY);
+	my $upd = $DB->prepare(<<QUERY);
 UPDATE enclosures
   SET enclosure_hash = ?
   WHERE enclosure_no = ?
@@ -526,7 +530,7 @@ QUERY
 
 sub originalize {
 	TRACE("Marking duplicates as don't use.");
-	my $dups = DBH->selectall_arrayref(<<QUERY);
+	my $dups = $DB->selectall_arrayref(<<QUERY);
 SELECT DISTINCT
     e2.enclosure_no, e2.enclosure_file
   FROM
@@ -539,7 +543,7 @@ SELECT DISTINCT
     AND e2.playlist_no IS NULL
 QUERY
 	
-	my $mark = DBH->prepare(<<QUERY);
+	my $mark = $DB->prepare(<<QUERY);
 UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?
 QUERY
 	foreach my $dup (@$dups) {
@@ -549,7 +553,7 @@ QUERY
 }
 
 sub stopwatch {
-	my $sth = DBH->prepare(<<QUERY);
+	my $sth = $DB->prepare(<<QUERY);
 SELECT enclosure_no, enclosure_file
   FROM enclosures
   WHERE
@@ -558,7 +562,7 @@ SELECT enclosure_no, enclosure_file
     AND enclosure_use = 1
 QUERY
 
-	my $upd = DBH->prepare(<<QUERY);
+	my $upd = $DB->prepare(<<QUERY);
 UPDATE enclosures
   SET enclosure_time = ?
   WHERE enclosure_no = ?
@@ -608,9 +612,9 @@ QUERY
 }
 
 sub playlist {
-	DBH->do('INSERT INTO playlists(playlist_ctime) VALUES (?)', {}, time());
+	$DB->do('INSERT INTO playlists(playlist_ctime) VALUES (?)', {}, time());
 
-	my $p_no = DBH->last_insert_id('', '', 'playlists', 'playlist_no')
+	my $p_no = $DB->last_insert_id('', '', 'playlists', 'playlist_no')
 		or LOGDIE("Could not get playlist number");
 
 	my $plist_dir = notaint(CONFIG->{storage}{playlistedmedia}."/$p_no");
@@ -639,7 +643,7 @@ sub playlist {
 		});
 	}
 
-	my $mark = DBH->prepare(<<QUERY);
+	my $mark = $DB->prepare(<<QUERY);
 UPDATE enclosures
   SET playlist_no = ?, playlist_so = ?
   WHERE enclosure_no = ?
@@ -656,7 +660,7 @@ QUERY
 
 		# Figure the choice method
 		if (CONFIG->{playlist}{choicemethod} =~ /RandomFeed/i) {
-			($only_feed) = DBH->selectrow_array(<<QUERY);
+			($only_feed) = $DB->selectrow_array(<<QUERY);
 SELECT DISTINCT feed_no FROM valids
   WHERE $where
   ORDER BY random() LIMIT 1
@@ -678,7 +682,7 @@ QUERY
 
 		# Chose an item.
 		my ($feed_no, $enc_no, $enc_file, $enc_time)
-			= DBH->selectrow_array(<<QUERY);
+			= $DB->selectrow_array(<<QUERY);
 SELECT feed_no, enclosure_no, enclosure_file, enclosure_time
   FROM valids
   WHERE ($where) AND ($only_feed)
@@ -786,7 +790,7 @@ sub get_one_random {
 	return $rmedia if rand() >= CONFIG->{playlist}{randomfeedratio};
 	return $rmedia unless defined $mark;
 	return $rmedia
-		unless my ($enc_no, $enc_file) = DBH->selectrow_array(<<QUERY);
+		unless my ($enc_no, $enc_file) = $DB->selectrow_array(<<QUERY);
 SELECT enclosure_no, enclosure_file
   FROM valids
   WHERE feed_is_music = 1
@@ -867,7 +871,7 @@ sub speak {
 sub all_playlists {
 	while (1) {
 		playlist();
-		DBH->commit;
+		$DB->commit;
 	}
 }
 
@@ -995,9 +999,14 @@ ERR
 	# Setup our output directories.
 	setup_dirs();
 
-	# setup the DB and install DBH subroutine
-	my $dbh = setup_db();
-	*DBH = sub() { $dbh };
+	# setup the DB
+	$DB = Podist::Database->new(
+		dsn => CONFIG->{database}{dsn},
+		username => CONFIG->{database}{username},
+		password => CONFIG->{database}{password}
+	);
+
+	return;
 }
 
 sub setup_dirs {
@@ -1222,117 +1231,6 @@ CONF
 	return $config;
 }
 
-use constant DB_VERSION => 1;
-
-sub setup_db {
-	TRACE("Connecting to the database.");
-	my $dbh = DBI->connect(
-		CONFIG->{database}{dsn},
-		CONFIG->{database}{username},
-		CONFIG->{database}{password},
-		{
-			AutoCommit       => 0,
-			RaiseError       => 1,
-			PrintError       => 0,
-			FetchHashKeyName => 'NAME_lc',
-		});
-
-	my ($vers) = $dbh->selectrow_array('PRAGMA user_version');
-	$vers > DB_VERSION
-		and die "Database is from newer version of this program";
-
-	if (0 == $vers) {
-		INFO("Creating Podist database.");
-		# need to create db.
-		$dbh->do(<<SQL);
-CREATE TABLE feeds (
-  feed_no        INTEGER   NOT NULL PRIMARY KEY,
-  feed_url       TEXT      NOT NULL UNIQUE,
-  feed_name      TEXT      NOT NULL UNIQUE,
-  feed_enabled   INTEGER   NOT NULL DEFAULT 1,
-  feed_ordered   INTEGER   NOT NULL DEFAULT 1,
-  feed_all_audio INTEGER   NOT NULL DEFAULT 1,
-  feed_is_music  INTEGER   NOT NULL DEFAULT 0,
-  CONSTRAINT enabled_is_bool CHECK (feed_enabled IN (0,1)),
-  CONSTRAINT ordered_is_bool CHECK (feed_ordered IN (0,1)),
-  CONSTRAINT all_audio_is_bool CHECK (feed_all_audio IN (0,1)),
-  CONSTRAINT is_music_is_bool CHECK (feed_is_music IN (0,1))
-)
-SQL
-		$dbh->do(<<SQL);
-CREATE TABLE playlists (
-  playlist_no    INTEGER   NOT NULL PRIMARY KEY,
-  playlist_ctime INTEGER   NOT NULL
-)
-SQL
-		$dbh->do(<<SQL);
-CREATE TABLE enclosures (
-  enclosure_no     INTEGER   NOT NULL PRIMARY KEY,
-  feed_no          INTEGER   NOT NULL REFERENCES feeds,
-  first_title      TEXT      NULL,
-  enclosure_url    TEXT      NOT NULL UNIQUE,
-  enclosure_file   TEXT      NULL UNIQUE,
-  enclosure_hash   TEXT      NULL,
-  enclosure_when   INTEGER   NOT NULL, -- unix timestamp
-  enclosure_time   REAL      NULL, -- length in seconds
-  enclosure_use    INTEGER   NOT NULL DEFAULT 1,
-  playlist_no      INTEGER   NULL REFERENCES playlists,
-  playlist_so      INTEGER   NULL,
-  UNIQUE(playlist_no, playlist_so),
-  CONSTRAINT use_is_bool CHECK (enclosure_use IN (0,1))
-)
-SQL
-		$dbh->do(<<SQL);
-CREATE INDEX enclosusures_enclosure_hash ON enclosures(enclosure_hash)
-SQL
-		$dbh->do(<<SQL);
-CREATE VIEW oldest_unplayed AS
-  SELECT feed_no, min(enclosure_when) AS oldest
-    FROM enclosures
-    WHERE
-      enclosure_file IS NOT NULL
-      AND playlist_no IS NULL
-      AND enclosure_use = 1
-    GROUP BY feed_no
-SQL
-		$dbh->do(<<SQL);
-CREATE VIEW valids AS
-  SELECT
-    f.feed_ordered    AS feed_ordered,
-    f.feed_is_music   AS feed_is_music,
-    e.enclosure_no    AS enclosure_no,
-    e.feed_no         AS feed_no,
-    e.first_title     AS first_title,
-    e.enclosure_url   AS enclosure_url,
-    e.enclosure_file  AS enclosure_file,
-    e.enclosure_when  AS enclosure_when,
-    e.enclosure_time  AS enclosure_time
-  FROM
-    feeds f
-    JOIN enclosures e ON (f.feed_no = e.feed_no)
-    LEFT JOIN oldest_unplayed ou ON (e.feed_no = ou.feed_no)
-  WHERE
-    (NOT f.feed_ordered OR e.enclosure_when = ou.oldest)
-    AND e.enclosure_file IS NOT NULL
-    AND e.enclosure_time IS NOT NULL
-    AND e.playlist_no IS NULL
-    AND e.enclosure_use = 1
-SQL
-		$dbh->selectrow_array('PRAGMA user_version = 1');
-		$dbh->commit;
-		TRACE("Database creation done.");
-	} elsif (1 == $vers) {
-		DEBUG("Version 1 database found");
-		# current, do nothing.
-	} else {
-		LOGDIE "BUG: Unknown (but not future!) database version";
-	}
-
-	# Enable foreign keys
-	$dbh->do('PRAGMA foreign_keys = ON');
-
-	return $dbh;
-}
 
 sub USER_AGENT() {
 	state $agent;
