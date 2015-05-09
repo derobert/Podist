@@ -1252,7 +1252,7 @@ sub USER_AGENT() {
 	state $agent;
 	unless ($agent) {
 		$agent = LWP::UserAgent->new(
-			agent => 'Podist/0.1 ', # space at end: append _agent
+			agent => 'Podist/0.2 ', # space at end: append _agent
 			env_proxy => 1,
 			keep_alive => 4, # Some podcasts love redirects
 			cookie_jar => { }, # temp only
