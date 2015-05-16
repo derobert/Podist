@@ -201,6 +201,7 @@ sub _build_dbh {
 	# default, but docs warn it may change.
 	$dbh->do(q{PRAGMA foreign_keys = false});
 
+	local $dbh->{ShowErrorStatement} = 1; # useful if migration fails
 	my ($vers) = $dbh->selectrow_array('PRAGMA user_version');
 	foreach my $migration (@{$self->_get_migrations($vers)}) {
 		$dbh->do($migration);
