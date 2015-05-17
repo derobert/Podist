@@ -17,7 +17,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use Config::General;
-use Data::Dumper;
 use DBI;
 use Digest;
 use File::Copy qw(move);
@@ -152,17 +151,6 @@ SELECT
 QUERY
 	$sth->execute;
 
-	my $check = $DB->prepare(<<QUERY);
-SELECT 1 FROM enclosures
-  WHERE enclosure_url = ?
-QUERY
-
-	my $ins = $DB->prepare(<<QUERY);
-INSERT INTO enclosures (
-  feed_no, first_title, enclosure_url, enclosure_when
-) VALUES (?, ?, ?, ?)
-QUERY
-
 	while (my ($feed_no, $feed_name, $feed_url, $all_audio)
 		= $sth->fetchrow_array)
 	{
@@ -215,14 +203,6 @@ QUERY
 				next;
 			}
 
-			$check->execute($enc_url);
-
-			if ($check->fetchrow_arrayref) {
-				TRACE("Skipping already-in-db $enc_url");
-				next;
-			}
-			$check->finish; # just in case
-
 			my $date = $item->get_pubDate_epoch;
 			if (!$date) {
 				ERROR("@{[ $item->title ]}: get_pubDate_epoch failed");
@@ -254,10 +234,37 @@ QUERY
 						. strftime("%F %H:%M:%S %Z", localtime($date))
 						. ".\nDo you know where your podcasts are?");
 			}
-			$ins->execute($feed_no, $item->title, $enc_url, $date);
-			my $dbg_id
-				= $DB->last_insert_id('', '', 'enclosures', 'enclosure_no');
-			DEBUG("Added id=$dbg_id, url=$enc_url: @{[ $item->title ]}");
+
+			my $article_no;
+			if (defined(my $uid = $item->guid)) {
+				$article_no = $DB->find_article(uid => $uid);
+				TRACE("Checked for uid $uid in DB.");
+			} else {
+				$article_no
+					= $DB->find_article(when => $date, title => $item_title);
+				TRACE("Checked for title $item_title date $date in DB.");
+			}
+			if ($article_no) {
+				TRACE("Skipping already-in-db article.");
+				next;
+			}
+			$article_no = $DB->add_article(
+				feed  => $feed_no,
+				uid   => scalar($item->guid),
+				title => $item_title,
+				when  => $date
+			);
+			DEBUG("Added article $article_no to DB for \"$item_title\"");
+
+			my $enclosure_no = $DB->find_enclosure($enc_url);
+			if (!$enclosure_no) {
+				$enclosure_no = $DB->add_enclosure($enc_url);
+				DEBUG(qq{Added enclosure $enclosure_no for "$enc_url".});
+			}
+			$DB->link_article_enclosure($article_no, $enclosure_no);
+			TRACE("Linked enclosure $enclosure_no to article $article_no");
+
+
 			$date_last2 = $date_last1;
 			$date_last1 = $date;
 		}
@@ -265,15 +272,15 @@ QUERY
 }
 
 sub download {
-	# We sort by feed number in hopes of maximizing use of persistent
-	# connections (HTTP Keepalive). Sort by the date to give the user a
-	# predictable order.
+	# We sort by URL in hopes of maximizing use of persistent
+	# connections (HTTP Keepalive). Next sort by the number to make this
+	# deterministic.
 	TRACE("Finding undownloaded media");
 	my $sth = $DB->prepare(<<QUERY);
 SELECT enclosure_no, enclosure_url
   FROM enclosures
   WHERE enclosure_file IS NULL AND enclosure_use = 1
-  ORDER BY feed_no, enclosure_when
+  ORDER BY enclosure_url, enclosure_no
 QUERY
 	$sth->execute;
 

@@ -17,10 +17,93 @@ has _dbh => (
 	builder  => '_build_dbh',
 	handles  => [qw(
 			commit rollback do prepare selectall_arrayref selectrow_array
-			last_insert_id
+			last_insert_id prepare_cached
 			)
 	],
 );
+
+sub find_enclosure {
+	my ($self, $url) = @_;
+
+	my $sth = $self->prepare_cached(
+		q{SELECT enclosure_no FROM enclosures WHERE enclosure_url = ?}
+	);
+
+	$sth->execute($url);
+	my ($res) = $sth->fetchrow_array;
+	$sth->finish;
+
+	return $res;
+}
+
+sub find_article {
+	my ($self, %search) = @_;
+
+	my $sth;
+	if (exists $search{uid}
+		&& !exists $search{when}
+		&& !exists $search{title})
+	{
+		$sth = $self->prepare_cached(
+			q{SELECT article_no FROM articles WHERE article_uid = ?});
+		$sth->execute($search{uid});
+	} elsif (exists $search{when} && exists $search{title}) {
+		$sth = $self->prepare_cached(
+			q{SELECT article_no FROM articles
+			  WHERE article_title = ? AND article_when = ? LIMIT 1}
+		);
+		$sth->execute($search{title}, $search{when});
+	} else {
+		confess "Expected search by uid or by title/when";
+	}
+
+	my ($res) = $sth->fetchrow_array;
+	$sth->finish;
+
+	return $res;
+}
+
+sub add_article {
+	my ($self, %opts) = @_;
+	$opts{feed} =~ /^\d+$/       or croak "Bad feed number";
+	$opts{when} =~ /^\d+$/       or croak "Bad when";
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO articles(feed_no, article_title, article_when, article_uid)
+		  VALUEs (?, ?, ?, ?)
+	});
+	$sth->execute($opts{feed}, $opts{title}, $opts{when}, $opts{uid});
+
+	my $e_no = $self->last_insert_id('', '', 'articles', 'article_no');
+	$e_no or confess "Failed to get an article number back from DB";
+
+	return $e_no;
+}
+
+sub add_enclosure {
+	my ($self, $url) = @_;
+
+	my $sth = $self->prepare_cached(
+		q{INSERT INTO enclosures(enclosure_url) VALUES (?)});
+	$sth->execute($url);
+
+	my $e_no = $self->last_insert_id('', '', 'enclosures', 'enclosure_no');
+	$e_no or confess "Failed to get an enclosure number back from DB";
+
+	return $e_no;
+}
+
+sub link_article_enclosure {
+	my ($self, $article, $enclosure) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO articles_enclosures(article_no, enclosure_no)
+		  VALUES (?, ?)
+	});
+	$sth->execute($article, $enclosure);
+
+	return;
+}
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
