@@ -32,7 +32,7 @@ sub _get_migrations {
 
 	if ($db_vers == $current_vers) {
 		DEBUG("Database is already current version.");
-		return undef;
+		return [];
 	} elsif ($db_vers == 0) {
 		INFO("Creating new Podist database.");
 	} else {
