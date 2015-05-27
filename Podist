@@ -375,9 +375,11 @@ SELECT
     SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END) AS cnt
   FROM
     feeds f
-    LEFT JOIN enclosures e ON (f.feed_no = e.feed_no)
+    LEFT JOIN articles a ON (f.feed_no = a.feed_no)
+    LEFT JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
+    LEFT JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
   WHERE
-    COALESCE(e.enclosure_use,1) = 1
+    COALESCE(e.enclosure_use,1) = 1 -- COALESCE due to LEFT JOIN
   GROUP BY feed_name
   HAVING
     f.feed_enabled = 1 OR cnt > 0
@@ -396,22 +398,22 @@ SELECT
     f.feed_enabled,
     CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END || f.feed_name,
     SUM(
-      CASE WHEN e.enclosure_when + 2*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN a.article_when + 2*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(2*3600) AS "48h",
     SUM(
-      CASE WHEN e.enclosure_when + 7*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN a.article_when + 7*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(7*3600) AS "168h",
     SUM(
-      CASE WHEN e.enclosure_when + 30*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN a.article_when + 30*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(30*3600) AS "720h",
     SUM(
-      CASE WHEN e.enclosure_when + 90*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN a.article_when + 90*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(90*3600) AS "2160h",
@@ -419,14 +421,16 @@ SELECT
       SUM(
         e.enclosure_time
       )/((
-        MAX(e.enclosure_when)-MIN(e.enclosure_when)
+        MAX(a.article_when)-MIN(a.article_when)
       )/24)
     ELSE 0
     END AS "4ever"
   FROM
     feeds f
+    LEFT JOIN articles a ON (f.feed_no = a.feed_no)
+    LEFT JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
     LEFT JOIN enclosures e ON (
-      f.feed_no = e.feed_no AND e.enclosure_use = 1
+      ae.enclosure_no = e.enclosure_no AND e.enclosure_use = 1
     )
   GROUP BY f.feed_no
   HAVING
