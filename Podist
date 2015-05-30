@@ -608,26 +608,23 @@ QUERY
 			ERROR("This shouldn't happen, as wel always set a suffix. WTF.");
 			next;
 		}
-		given ($1) {
-			when ('mp3') {
-				my $inf = get_mp3info($file);
-				if ($inf) {
-					$len = $inf->{SECS};
-				} else {
-					WARN("Could not get length of $file");
-				}
+		if ($1 eq 'mp3') {
+			my $inf = get_mp3info($file);
+			if ($inf) {
+				$len = $inf->{SECS};
+			} else {
+				WARN("Could not get length of $file");
 			}
-			when ('ogg') {
-				my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
-				if ($ogg) {
-					$len = $ogg->info('length');
-				} else {
-					WARN("Ogg parser doesn't think $file is ogg");
-				}
+		} elsif ($1 eq 'ogg') {
+			my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
+			if ($ogg) {
+				$len = $ogg->info('length');
+			} else {
+				WARN("Ogg parser doesn't think $file is ogg");
 			}
-			default {
-				ERROR("Don't know how to get length of $1 files");
-			}
+		}
+		else {
+			ERROR("Don't know how to get length of $1 files");
 		}
 
 		defined $len && 0 == $len
