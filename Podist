@@ -695,12 +695,11 @@ QUERY
 			TRACE("Picked feed $only_feed");
 			$only_feed = "feed_no = $only_feed";
 		} else {
-			given (lc(CONFIG->{playlist}{choicemethod})) {
-				when ('random')  { $order = 'random()' }
-				when ('longest') { $order = 'enclosure_time DESC' }
-				when ('oldest')  { $order = 'enclosure_when ASC' }
-				default { LOGIDE("Unknown ChoiceMethod: $_") };
-			}
+			my $method = lc(CONFIG->{playlist}{choicemethod});
+			if    ($method eq 'random')  { $order = 'random()' }
+			elsif ($method eq 'longest') { $order = 'enclosure_time DESC' }
+			elsif ($method eq 'oldest')  { $order = 'enclosure_when ASC' }
+			else                         { LOGIDE("Unknown ChoiceMethod: $_") }
 		}
 		TRACE("ORDER BY $order");
 
