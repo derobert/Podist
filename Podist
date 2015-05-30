@@ -600,14 +600,14 @@ QUERY
 
 	my $dir = CONFIG->{storage}{pendingmedia};
 	while (my ($enc_no, $enc_file) = $sth->fetchrow_array) {
+		my $file = notaint("$dir/$enc_file");
 		my $len;
+
 		unless ($enc_file =~ /\.(.{3})$/) {
 			ERROR("Could not find suffix in $enc_file");
 			ERROR("This shouldn't happen, as wel always set a suffix. WTF.");
 			next;
 		}
-
-		my $file = notaint("$dir/$enc_file");
 		given ($1) {
 			when ('mp3') {
 				my $inf = get_mp3info($file);
