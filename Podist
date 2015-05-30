@@ -608,26 +608,23 @@ QUERY
 			ERROR("This shouldn't happen, as wel always set a suffix. WTF.");
 			next;
 		}
-		given ($1) {
-			when ('mp3') {
-				my $inf = get_mp3info($file);
-				if ($inf) {
-					$len = $inf->{SECS};
-				} else {
-					WARN("Could not get length of $file");
-				}
+		if ($1 eq 'mp3') {
+			my $inf = get_mp3info($file);
+			if ($inf) {
+				$len = $inf->{SECS};
+			} else {
+				WARN("Could not get length of $file");
 			}
-			when ('ogg') {
-				my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
-				if ($ogg) {
-					$len = $ogg->info('length');
-				} else {
-					WARN("Ogg parser doesn't think $file is ogg");
-				}
+		} elsif ($1 eq 'ogg') {
+			my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
+			if ($ogg) {
+				$len = $ogg->info('length');
+			} else {
+				WARN("Ogg parser doesn't think $file is ogg");
 			}
-			default {
-				ERROR("Don't know how to get length of $1 files");
-			}
+		}
+		else {
+			ERROR("Don't know how to get length of $1 files");
 		}
 
 		defined $len && 0 == $len
@@ -698,12 +695,11 @@ QUERY
 			TRACE("Picked feed $only_feed");
 			$only_feed = "feed_no = $only_feed";
 		} else {
-			given (lc(CONFIG->{playlist}{choicemethod})) {
-				when ('random')  { $order = 'random()' }
-				when ('longest') { $order = 'enclosure_time DESC' }
-				when ('oldest')  { $order = 'enclosure_when ASC' }
-				default { LOGIDE("Unknown ChoiceMethod: $_") };
-			}
+			my $method = lc(CONFIG->{playlist}{choicemethod});
+			if    ($method eq 'random')  { $order = 'random()' }
+			elsif ($method eq 'longest') { $order = 'enclosure_time DESC' }
+			elsif ($method eq 'oldest')  { $order = 'enclosure_when ASC' }
+			else                         { LOGIDE("Unknown ChoiceMethod: $_") }
 		}
 		TRACE("ORDER BY $order");
 
@@ -871,25 +867,25 @@ sub speak {
 	run3 [qw(normalize-audio -q -a), $dBFS, $tmp_wav]
 		or LOGDIE("normalize-audio failed: $! $?");
 
-	given (CONFIG->{speech}{format}) {
-		when ('wav') { return $tmp_wav }
-		when ('mp3') {
-			my (undef, $tmp_mp3) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.mp3');
-			TRACE("Encoding mp3");
-			run3 [qw(lame --quiet --preset medium), $tmp_wav, $tmp_mp3]
-				or LOGDIE("lame failed: $! $?");
-			unlink $tmp_wav;
-			return $tmp_mp3;
-		}
-		when ('ogg') {
-			my (undef, $tmp_ogg) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.ogg');
-			TRACE("Encoding ogg");
-			run3 [qw(oggenc -Q -q0 -o), $tmp_ogg, $tmp_wav]
-				or LOGDIE("oggenc failed: $! $?");
-			unlink $tmp_wav;
-			return $tmp_ogg;
-		}
-		default { LOGDIE("Uknown format $_") }
+	my $format = CONFIG->{speech}{format};
+	if ($format eq 'wav') {
+		return $tmp_wav
+	} elsif ($format eq 'mp3') {
+		my (undef, $tmp_mp3) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.mp3');
+		TRACE("Encoding mp3");
+		run3 [qw(lame --quiet --preset medium), $tmp_wav, $tmp_mp3]
+			or LOGDIE("lame failed: $! $?");
+		unlink $tmp_wav;
+		return $tmp_mp3;
+	} elsif ($format eq 'ogg') {
+		my (undef, $tmp_ogg) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.ogg');
+		TRACE("Encoding ogg");
+		run3 [qw(oggenc -Q -q0 -o), $tmp_ogg, $tmp_wav]
+			or LOGDIE("oggenc failed: $! $?");
+		unlink $tmp_wav;
+		return $tmp_ogg;
+	} else {
+		LOGDIE("Uknown format $_")
 	}
 
 	LOGDIE("Unreachable code reached");
