@@ -6,8 +6,11 @@
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
     </note>
-    <note priority="medium" time="1433255210">
+    <note priority="medium" time="1433255210" done="1433313421">
         Filter (Rebroadcast) and [Rebroadcast]. Implement as global filter regex.
+        <comment>
+            done
+        </comment>
     </note>
     <note priority="medium" time="1433255229">
         Feeds with unique title filter
