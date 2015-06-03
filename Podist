@@ -190,6 +190,12 @@ QUERY
 			(my $item_title = $item->title) =~ y/\x0a\x0d/ /;
 			$item_title =~ s/^\s+//;
 			$item_title =~ s/\s+$//;
+
+			if ($item_title =~ CONFIG->{article}{titleignorere}) {
+				TRACE("Skipping title-ignored $item_title.");
+				next;
+			}
+
 			unless ($enc_url) {
 				my $msg = "Item $item_title has no enclosure";
 				$all_audio ? INFO($msg) : TRACE($msg);
@@ -1078,6 +1084,11 @@ DataDir $confdir # e.g., \$HOME/.podist
 	RandomMedia     \$HOME/Podist/playlists/random
 </storage>
 
+<article>
+	# Note this is after basic title whitespace normalization.
+	TitleIgnoreRE   "(?i:[\[(]rebroadcast[\])])$"
+</article>
+
 <playlist>
 	# These are constraints for playlist generation. They are followed
 	# as:
@@ -1250,6 +1261,31 @@ CONF
 		$config->{playlist}{$v} =~ m!(\d+)/(\d+)!
 			and $config->{playlist}{$v} = $1/$2;
 	}
+
+	# compile TitleIgnoreRE regex.
+	eval {
+		$config->{article}{titleignorere}
+			= qr/$config->{article}{titleignorere}/;
+	};
+	if ($@) {
+		# can't use ERROR yet. Log4perl isn't set up.
+		(my $err = $@) =~ s/ at \S+ line \d+\.\n$//;
+		print STDERR <<ERR;
+Invalid configuration file found. Expected a valid regular expression
+for the TitleIgnoreRE option in the <article> block. Attempting to
+compile:
+
+   $config->{article}{titleignorere}
+
+gave the following Perl error:
+
+   $err
+
+Exiting.
+ERR
+		exit 1;
+	}
+
 
 	return $config;
 }
