@@ -154,7 +154,8 @@ QUERY
 	while (my ($feed_no, $feed_name, $feed_url, $all_audio)
 		= $sth->fetchrow_array)
 	{
-		INFO("Fetching $feed_name (feed#$feed_no)");
+		my $fetch_no = $DB->add_fetch($feed_no);
+		INFO("Fetching $feed_name (feed#$feed_no, fetch#$fetch_no)");
 		my $resp = USER_AGENT->get($feed_url);
 		unless ($resp->is_success) {
 			ERROR("Downloading of $feed_name from $feed_url failed:");
@@ -256,6 +257,7 @@ QUERY
 			}
 			$article_no = $DB->add_article(
 				feed  => $feed_no,
+				fetch => $fetch_no,
 				uid   => scalar($item->guid),
 				title => $item_title,
 				when  => $date

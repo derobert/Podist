@@ -65,14 +65,17 @@ sub find_article {
 
 sub add_article {
 	my ($self, %opts) = @_;
-	$opts{feed} =~ /^\d+$/       or croak "Bad feed number";
-	$opts{when} =~ /^\d+$/       or croak "Bad when";
+	$opts{feed}  =~ /^\d+$/       or croak "Bad feed number";
+	$opts{when}  =~ /^\d+$/       or croak "Bad when";
+	$opts{fetch} =~ /^\d+$/       or croak "Bad fetch number";
 
 	my $sth = $self->prepare_cached(q{
-		INSERT INTO articles(feed_no, article_title, article_when, article_uid)
-		  VALUEs (?, ?, ?, ?)
+		INSERT INTO articles(
+		  feed_no, fetch_no, article_title, article_when, article_uid
+		) VALUEs (?, ?, ?, ?, ?)
 	});
-	$sth->execute($opts{feed}, $opts{title}, $opts{when}, $opts{uid});
+	$sth->execute($opts{feed}, $opts{fetch}, $opts{title}, $opts{when},
+		$opts{uid});
 
 	my $e_no = $self->last_insert_id('', '', 'articles', 'article_no');
 	$e_no or confess "Failed to get an article number back from DB";
@@ -105,9 +108,22 @@ sub link_article_enclosure {
 	return;
 }
 
+sub add_fetch {
+	my ($self, $feed_no) = @_;
+
+	my $sth = $self->prepare_cached(
+		q{INSERT INTO fetches(feed_no, fetch_when) VALUES (?, ?)});
+	$sth->execute($feed_no, time);
+
+	my $f_no = $self->last_insert_id('', '', 'fetches', 'fetch_no');
+	$f_no or confess "Failed to get a fetch number back from DB";
+
+	return $f_no;
+}
+
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 2;
+	my $current_vers = 3;
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -147,6 +163,16 @@ CREATE TABLE playlists (
 SQL
 	}
 
+	if ($db_vers < 3) {
+		push @sql, <<SQL;
+CREATE TABLE fetches (
+  fetch_no     INTEGER   NOT NULL PRIMARY KEY,
+  feed_no      INTEGER   NOT NULL REFERENCES feeds,
+  fetch_when   INTEGER   NOT NULL -- unix timestamp
+)
+SQL
+	}
+
 	if ($db_vers == 1) {
 		# 1 → 2 upgrade, need to save old enclosures table because
 		# SQLite can't do ALTER TABLE well enough.
@@ -177,6 +203,7 @@ SQL
 CREATE TABLE articles (
   article_no       INTEGER   NOT NULL PRIMARY KEY,
   feed_no          INTEGER   NOT NULL REFERENCES feeds,
+  fetch_no         INTEGER   NULL REFERENCES fetches,
   article_when     INTEGER   NOT NULL, -- unix timestamp
   article_uid      TEXT      NULL,
   article_title    TEXT      NULL,
@@ -219,6 +246,12 @@ INSERT INTO articles_enclosures (article_no, enclosure_no)
 SQL
 	}
 
+	if ($db_vers == 2) {
+		# add fetch_no to articles
+		push @sql,
+			"ALTER TABLE articles ADD fetch_no INTEGER NULL REFERENCES fetches";
+	}
+
 	if ($db_vers == 0 || $db_vers == 1) {
 		push @sql, <<SQL;
 CREATE VIEW oldest_unplayed AS
@@ -259,9 +292,10 @@ CREATE VIEW valids AS
     AND e.enclosure_use = 1
 SQL
 	
-		# finally, set version
-		push @sql, q{PRAGMA user_version = 2};
 	}
+
+	# finally, set version
+	push @sql, q{PRAGMA user_version = 3};
 
 	return \@sql;
 }
