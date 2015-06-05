@@ -54,4 +54,7 @@
     <note priority="high" time="1222403940" done="1433255148">
         Implement RandomMedia.
     </note>
+    <note priority="veryhigh" time="1433480122">
+        Desperately need basic test suite. (Do the database migrations work? Who knows...)
+    </note>
 </todo>
