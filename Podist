@@ -192,11 +192,6 @@ QUERY
 			$item_title =~ s/^\s+//;
 			$item_title =~ s/\s+$//;
 
-			if ($item_title =~ CONFIG->{article}{titleignorere}) {
-				TRACE("Skipping title-ignored $item_title.");
-				next;
-			}
-
 			unless ($enc_url) {
 				my $msg = "Item $item_title has no enclosure";
 				$all_audio ? INFO($msg) : TRACE($msg);
@@ -255,23 +250,32 @@ QUERY
 				TRACE("Skipping already-in-db article.");
 				next;
 			}
+
+			my $article_use = 1;
+			if ($item_title =~ CONFIG->{article}{titleignorere}) {
+				INFO("Will set don't-use on title-ignored $item_title.");
+				$article_use = 0;
+			}
+
 			$article_no = $DB->add_article(
 				feed  => $feed_no,
 				fetch => $fetch_no,
+				use   => $article_use,
 				uid   => scalar($item->guid),
 				title => $item_title,
 				when  => $date
 			);
 			DEBUG("Added article $article_no to DB for \"$item_title\"");
 
-			my $enclosure_no = $DB->find_enclosure($enc_url);
-			if (!$enclosure_no) {
-				$enclosure_no = $DB->add_enclosure($enc_url);
-				DEBUG(qq{Added enclosure $enclosure_no for "$enc_url".});
+			if ($article_use) {
+				my $enclosure_no = $DB->find_enclosure($enc_url);
+				if (!$enclosure_no) {
+					$enclosure_no = $DB->add_enclosure($enc_url);
+					DEBUG(qq{Added enclosure $enclosure_no for "$enc_url".});
+				}
+				$DB->link_article_enclosure($article_no, $enclosure_no);
+				TRACE("Linked enclosure $enclosure_no to article $article_no");
 			}
-			$DB->link_article_enclosure($article_no, $enclosure_no);
-			TRACE("Linked enclosure $enclosure_no to article $article_no");
-
 
 			$date_last2 = $date_last1;
 			$date_last1 = $date;
@@ -388,6 +392,7 @@ SELECT
     LEFT JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
   WHERE
     COALESCE(e.enclosure_use,1) = 1 -- COALESCE due to LEFT JOIN
+    AND COALESCE(a.article_use,1) = 1 -- COALESCE due to LEFT JOIN
   GROUP BY feed_name
   HAVING
     f.feed_enabled = 1 OR cnt > 0
@@ -435,7 +440,7 @@ SELECT
     END AS "4ever"
   FROM
     feeds f
-    LEFT JOIN articles a ON (f.feed_no = a.feed_no)
+    LEFT JOIN articles a ON (f.feed_no = a.feed_no AND a.article_use = 1)
     LEFT JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
     LEFT JOIN enclosures e ON (
       ae.enclosure_no = e.enclosure_no AND e.enclosure_use = 1

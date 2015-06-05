@@ -69,13 +69,18 @@ sub add_article {
 	$opts{when}  =~ /^\d+$/       or croak "Bad when";
 	$opts{fetch} =~ /^\d+$/       or croak "Bad fetch number";
 
+	# default to true, convert perl truth to strict 0/1 truth.
+	$opts{use} = ($opts{use} // 1) ? 1 : 0;
+
 	my $sth = $self->prepare_cached(q{
 		INSERT INTO articles(
-		  feed_no, fetch_no, article_title, article_when, article_uid
-		) VALUEs (?, ?, ?, ?, ?)
+		  feed_no, fetch_no, article_title, article_when, article_uid,
+		  article_use
+		) VALUEs (?, ?, ?, ?, ?, ?)
 	});
-	$sth->execute($opts{feed}, $opts{fetch}, $opts{title}, $opts{when},
-		$opts{uid});
+	$sth->execute(
+		$opts{feed}, $opts{fetch}, $opts{title},
+		$opts{when}, $opts{uid},   $opts{use});
 
 	my $e_no = $self->last_insert_id('', '', 'articles', 'article_no');
 	$e_no or confess "Failed to get an article number back from DB";
@@ -177,6 +182,9 @@ SQL
 		# 1 → 2 upgrade, need to save old enclosures table because
 		# SQLite can't do ALTER TABLE well enough.
 		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v1};
+	}
+
+	if ($db_vers == 1 || $db_vers == 2) {
 		push @sql, q{DROP VIEW valids};
 		push @sql, q{DROP VIEW oldest_unplayed};
 	}
@@ -205,9 +213,11 @@ CREATE TABLE articles (
   feed_no          INTEGER   NOT NULL REFERENCES feeds,
   fetch_no         INTEGER   NULL REFERENCES fetches,
   article_when     INTEGER   NOT NULL, -- unix timestamp
+  article_use      INTEGER   NOT NULL DEFAULT 1,
   article_uid      TEXT      NULL,
   article_title    TEXT      NULL,
-  UNIQUE(feed_no, article_uid)
+  UNIQUE(feed_no, article_uid),
+  CONSTRAINT use_is_bool CHECK (article_use IN (0,1))
 )
 SQL
 		push @sql, <<SQL;
@@ -247,12 +257,14 @@ SQL
 	}
 
 	if ($db_vers == 2) {
-		# add fetch_no to articles
 		push @sql,
 			"ALTER TABLE articles ADD fetch_no INTEGER NULL REFERENCES fetches";
+
+		push @sql,
+			q{ALTER TABLE articles ADD article_use INTEGER NOT NULL DEFAULT 1 CONSTRAINT use_is_bool CHECK (article_use IN (0,1))};
 	}
 
-	if ($db_vers == 0 || $db_vers == 1) {
+	if ($db_vers == 0 || $db_vers == 1 || $db_vers == 2) {
 		push @sql, <<SQL;
 CREATE VIEW oldest_unplayed AS
   SELECT a.feed_no, min(a.article_when) AS oldest
@@ -264,6 +276,7 @@ CREATE VIEW oldest_unplayed AS
       e.enclosure_file IS NOT NULL
       AND e.playlist_no IS NULL
       AND e.enclosure_use = 1
+      AND a.article_use = 1
     GROUP BY a.feed_no
 SQL
 		push @sql, <<SQL;
@@ -290,6 +303,7 @@ CREATE VIEW valids AS
     AND e.enclosure_time IS NOT NULL
     AND e.playlist_no IS NULL
     AND e.enclosure_use = 1
+    AND a.article_use = 1
 SQL
 	
 	}
