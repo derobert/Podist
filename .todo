@@ -1,5 +1,8 @@
 <?xml version="1.0"?>
 <todo version="0.1.20">
+    <note priority="verylow" time="1433650768">
+        Specify all feed options when adding a feed. Missing a lot that are db-only now.
+    </note>
     <note priority="low" time="1433315474">
         Support for multiple shorts in a row (e.g., target x minutes). Mainly thinking of Composers Datebook.
     </note>
@@ -50,6 +53,12 @@
     </note>
     <note priority="high" time="1433372696">
         Per-feed, per-day since last fetch maximum articles to add
+        <note priority="medium" time="1433650928">
+            Option to ignore limit temporarily.
+        </note>
+        <note priority="medium" time="1433650903">
+            Option to limit fetch operation to a single feed.
+        </note>
     </note>
     <note priority="high" time="1222403940" done="1433255148">
         Implement RandomMedia.

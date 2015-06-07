@@ -1,4 +1,5 @@
 package Podist::Database;
+use feature 'state';
 use Carp;
 use DBI;
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
@@ -126,6 +127,21 @@ sub add_fetch {
 	return $f_no;
 }
 
+sub finish_fetch {
+	state $CODES = {
+		'ok' => 0,
+		'limit' => 1,
+	};
+	my ($self, $fetch_no, $status_txt) = @_;
+	defined(my $status = $CODES->{lc $status_txt})
+		or croak "Invalid status '$status_txt'";
+
+	my $sth = $self->prepare_cached(
+		q{UPDATE fetches SET fetch_status = ? WHERE fetch_no = ?}
+	);
+	$sth->execute($status, $fetch_no);
+}
+
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
 	my $current_vers = 3;
@@ -147,13 +163,15 @@ sub _get_migrations {
 	if ($db_vers == 0) {
 		push @sql, <<SQL;
 CREATE TABLE feeds (
-  feed_no        INTEGER   NOT NULL PRIMARY KEY,
-  feed_url       TEXT      NOT NULL UNIQUE,
-  feed_name      TEXT      NOT NULL UNIQUE,
-  feed_enabled   INTEGER   NOT NULL DEFAULT 1,
-  feed_ordered   INTEGER   NOT NULL DEFAULT 1,
-  feed_all_audio INTEGER   NOT NULL DEFAULT 1,
-  feed_is_music  INTEGER   NOT NULL DEFAULT 0,
+  feed_no             INTEGER   NOT NULL PRIMARY KEY,
+  feed_url            TEXT      NOT NULL UNIQUE,
+  feed_name           TEXT      NOT NULL UNIQUE,
+  feed_enabled        INTEGER   NOT NULL DEFAULT 1,
+  feed_ordered        INTEGER   NOT NULL DEFAULT 1,
+  feed_all_audio      INTEGER   NOT NULL DEFAULT 1,
+  feed_is_music       INTEGER   NOT NULL DEFAULT 0,
+  feed_limit_amount   INTEGER   NOT NULL DEFAULT 3,
+  feed_limit_period   INTEGER   NOT NULL DEFAULT 604800, -- 1 week in seconds
   CONSTRAINT enabled_is_bool CHECK (feed_enabled IN (0,1)),
   CONSTRAINT ordered_is_bool CHECK (feed_ordered IN (0,1)),
   CONSTRAINT all_audio_is_bool CHECK (feed_all_audio IN (0,1)),
@@ -170,10 +188,19 @@ SQL
 
 	if ($db_vers < 3) {
 		push @sql, <<SQL;
+CREATE TABLE status_codes (
+  status_code   INTEGER   NOT NULL PRIMARY KEY,
+  status_descr  TEXT      NOT NULL
+)
+SQL
+		push @sql, q{INSERT INTO status_codes VALUES(0, 'OK')};
+		push @sql, q{INSERT INTO status_codes VALUES(1, 'Limit Exceeded')};
+		push @sql, <<SQL;
 CREATE TABLE fetches (
-  fetch_no     INTEGER   NOT NULL PRIMARY KEY,
-  feed_no      INTEGER   NOT NULL REFERENCES feeds,
-  fetch_when   INTEGER   NOT NULL -- unix timestamp
+  fetch_no       INTEGER   NOT NULL PRIMARY KEY,
+  feed_no        INTEGER   NOT NULL REFERENCES feeds,
+  fetch_status   INTEGER   NULL REFERENCES status_codes,
+  fetch_when     INTEGER   NOT NULL -- unix timestamp
 )
 SQL
 	}
@@ -185,6 +212,10 @@ SQL
 	}
 
 	if ($db_vers == 1 || $db_vers == 2) {
+		push @sql,
+			q{ALTER TABLE feeds ADD feed_limit_amount INTEGER NOT NULL DEFAULT 3},
+			q{ALTER TABLE feeds ADD feed_limit_period INTEGER NOT NULL DEFAULT 604800};
+
 		push @sql, q{DROP VIEW valids};
 		push @sql, q{DROP VIEW oldest_unplayed};
 	}

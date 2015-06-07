@@ -142,20 +142,38 @@ sub catch {
 
 sub fetch {
 	TRACE("Finding enabled feeds in db");
-	my $sth = $DB->prepare(<<QUERY);
+	my $sth_feeds = $DB->prepare(<<QUERY);
 SELECT
-    feed_no, feed_name, feed_url, feed_all_audio
+    feed_no, feed_name, feed_url, feed_all_audio,
+    feed_limit_amount, feed_limit_period
   FROM feeds
   WHERE feed_enabled = 1
   ORDER BY feed_no
 QUERY
-	$sth->execute;
+	$sth_feeds->execute;
 
-	while (my ($feed_no, $feed_name, $feed_url, $all_audio)
-		= $sth->fetchrow_array)
+	my $sth_used = $DB->prepare(<<QUERY);
+SELECT COUNT(*)
+  FROM fetches f JOIN articles a ON (f.fetch_no = a.fetch_no)
+  WHERE a.article_use = 1 AND f.feed_no = ? AND f.fetch_when >= ?
+QUERY
+
+	FEED: while (my ($feed_no, $feed_name, $feed_url, $all_audio, $limit_amount, $limit_period)
+		= $sth_feeds->fetchrow_array)
 	{
+		$sth_used->execute($feed_no, time-$limit_period);
+		my ($limit_used) = $sth_used->fetchrow_array;
+		$sth_used->finish;
+
+		my $limit_remain = $limit_amount - $limit_used;
+		if ($limit_remain <= 0) {
+			WARN("Skipping $feed_name (#$feed_no) because limit fully used.");
+			next;
+		}
+
 		my $fetch_no = $DB->add_fetch($feed_no);
-		INFO("Fetching $feed_name (feed#$feed_no, fetch#$fetch_no)");
+		INFO("Fetching $feed_name (feed#$feed_no, fetch#$fetch_no, limit=$limit_remain)");
+		$DB->do("SAVEPOINT one_fetch");
 		my $resp = USER_AGENT->get($feed_url);
 		unless ($resp->is_success) {
 			ERROR("Downloading of $feed_name from $feed_url failed:");
@@ -186,7 +204,8 @@ QUERY
 		}
 
 		my ($date_last1, $date_last2);
-		foreach my $item ($feed->get_item) {
+		my $item_count = 0;
+		ITEM: foreach my $item ($feed->get_item) {
 			my $enc_url = $item->get('enclosure@url');
 			(my $item_title = $item->title) =~ y/\x0a\x0d/ /;
 			$item_title =~ s/^\s+//;
@@ -268,6 +287,13 @@ QUERY
 			DEBUG("Added article $article_no to DB for \"$item_title\"");
 
 			if ($article_use) {
+				++$item_count;
+				if ($item_count > $limit_remain) {
+					ERROR("Feed $feed_name (#$feed_no) exceeded new article limit ($limit_remain). Rolling back.");
+					$DB->do(q{ROLLBACK TO SAVEPOINT one_fetch});
+					$DB->finish_fetch($fetch_no, 'Limit');
+					next FEED;
+				}
 				my $enclosure_no = $DB->find_enclosure($enc_url);
 				if (!$enclosure_no) {
 					$enclosure_no = $DB->add_enclosure($enc_url);
@@ -280,6 +306,10 @@ QUERY
 			$date_last2 = $date_last1;
 			$date_last1 = $date;
 		}
+
+		# we got here, so it's OK.
+		$DB->finish_fetch($fetch_no, 'OK');
+		$DB->do(q{RELEASE SAVEPOINT one_fetch});
 	}
 }
 
