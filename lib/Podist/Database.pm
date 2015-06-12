@@ -129,8 +129,10 @@ sub add_fetch {
 
 sub finish_fetch {
 	state $CODES = {
-		'ok' => 0,
-		'limit' => 1,
+		ok          => 0,
+		limit       => 1,
+		http_error  => 2,
+		parse_error => 3,
 	};
 	my ($self, $fetch_no, $status_txt) = @_;
 	defined(my $status = $CODES->{lc $status_txt})
@@ -195,6 +197,8 @@ CREATE TABLE status_codes (
 SQL
 		push @sql, q{INSERT INTO status_codes VALUES(0, 'OK')};
 		push @sql, q{INSERT INTO status_codes VALUES(1, 'Limit Exceeded')};
+		push @sql, q{INSERT INTO status_codes VALUES(2, 'HTTP Error (download failed)')};
+		push @sql, q{INSERT INTO status_codes VALUES(3, 'Feed parse failed')};
 		push @sql, <<SQL;
 CREATE TABLE fetches (
   fetch_no       INTEGER   NOT NULL PRIMARY KEY,

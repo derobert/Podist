@@ -3,6 +3,9 @@
     <note priority="verylow" time="1433650768">
         Specify all feed options when adding a feed. Missing a lot that are db-only now.
     </note>
+    <note priority="low" time="1434066868">
+        Add oldest unplaylisted to status
+    </note>
     <note priority="low" time="1433315474">
         Support for multiple shorts in a row (e.g., target x minutes). Mainly thinking of Composers Datebook.
     </note>
@@ -53,6 +56,9 @@
     </note>
     <note priority="high" time="1433372696">
         Per-feed, per-day since last fetch maximum articles to add
+        <note priority="medium" time="1434085588" done="1434086353">
+            Set fetch status when download fails or when parse fails (currently leave as null)
+        </note>
         <note priority="medium" time="1433650928">
             Option to ignore limit temporarily.
         </note>

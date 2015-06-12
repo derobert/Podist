@@ -178,6 +178,7 @@ QUERY
 		unless ($resp->is_success) {
 			ERROR("Downloading of $feed_name from $feed_url failed:");
 			ERROR($resp->status_line);
+			$DB->finish_fetch($fetch_no, 'http_error');
 
 			next; # ignore this feed
 		}
@@ -196,6 +197,7 @@ QUERY
 		};
 		if ($@) {
 			ERROR("Feed parse exploded: $@");
+			$DB->finish_fetch($fetch_no, 'parse_error');
 			next;
 		}
 		unless ($feed) {
