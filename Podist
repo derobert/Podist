@@ -44,7 +44,6 @@ use lib "$FindBin::Bin/lib";
 use Podist::Database;
 
 use feature 'state';
-use feature 'switch';
 use feature 'say';
 use strict;
 
