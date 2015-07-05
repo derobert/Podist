@@ -54,7 +54,7 @@
             Re-work ignore to set don't use.
         </note>
     </note>
-    <note priority="high" time="1433372696">
+    <note priority="high" time="1433372696" done="1436126582">
         Per-feed, per-day since last fetch maximum articles to add
         <note priority="medium" time="1434085588" done="1434086353">
             Set fetch status when download fails or when parse fails (currently leave as null)
