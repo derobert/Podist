@@ -1,4 +1,5 @@
 package Podist::Database;
+use feature 'state';
 use Carp;
 use DBI;
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
@@ -65,14 +66,22 @@ sub find_article {
 
 sub add_article {
 	my ($self, %opts) = @_;
-	$opts{feed} =~ /^\d+$/       or croak "Bad feed number";
-	$opts{when} =~ /^\d+$/       or croak "Bad when";
+	$opts{feed}  =~ /^\d+$/       or croak "Bad feed number";
+	$opts{when}  =~ /^\d+$/       or croak "Bad when";
+	$opts{fetch} =~ /^\d+$/       or croak "Bad fetch number";
+
+	# default to true, convert perl truth to strict 0/1 truth.
+	$opts{use} = ($opts{use} // 1) ? 1 : 0;
 
 	my $sth = $self->prepare_cached(q{
-		INSERT INTO articles(feed_no, article_title, article_when, article_uid)
-		  VALUEs (?, ?, ?, ?)
+		INSERT INTO articles(
+		  feed_no, fetch_no, article_title, article_when, article_uid,
+		  article_use
+		) VALUEs (?, ?, ?, ?, ?, ?)
 	});
-	$sth->execute($opts{feed}, $opts{title}, $opts{when}, $opts{uid});
+	$sth->execute(
+		$opts{feed}, $opts{fetch}, $opts{title},
+		$opts{when}, $opts{uid},   $opts{use});
 
 	my $e_no = $self->last_insert_id('', '', 'articles', 'article_no');
 	$e_no or confess "Failed to get an article number back from DB";
@@ -105,9 +114,39 @@ sub link_article_enclosure {
 	return;
 }
 
+sub add_fetch {
+	my ($self, $feed_no) = @_;
+
+	my $sth = $self->prepare_cached(
+		q{INSERT INTO fetches(feed_no, fetch_when) VALUES (?, ?)});
+	$sth->execute($feed_no, time);
+
+	my $f_no = $self->last_insert_id('', '', 'fetches', 'fetch_no');
+	$f_no or confess "Failed to get a fetch number back from DB";
+
+	return $f_no;
+}
+
+sub finish_fetch {
+	state $CODES = {
+		ok          => 0,
+		limit       => 1,
+		http_error  => 2,
+		parse_error => 3,
+	};
+	my ($self, $fetch_no, $status_txt) = @_;
+	defined(my $status = $CODES->{lc $status_txt})
+		or croak "Invalid status '$status_txt'";
+
+	my $sth = $self->prepare_cached(
+		q{UPDATE fetches SET fetch_status = ? WHERE fetch_no = ?}
+	);
+	$sth->execute($status, $fetch_no);
+}
+
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 2;
+	my $current_vers = 3;
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -126,13 +165,15 @@ sub _get_migrations {
 	if ($db_vers == 0) {
 		push @sql, <<SQL;
 CREATE TABLE feeds (
-  feed_no        INTEGER   NOT NULL PRIMARY KEY,
-  feed_url       TEXT      NOT NULL UNIQUE,
-  feed_name      TEXT      NOT NULL UNIQUE,
-  feed_enabled   INTEGER   NOT NULL DEFAULT 1,
-  feed_ordered   INTEGER   NOT NULL DEFAULT 1,
-  feed_all_audio INTEGER   NOT NULL DEFAULT 1,
-  feed_is_music  INTEGER   NOT NULL DEFAULT 0,
+  feed_no             INTEGER   NOT NULL PRIMARY KEY,
+  feed_url            TEXT      NOT NULL UNIQUE,
+  feed_name           TEXT      NOT NULL UNIQUE,
+  feed_enabled        INTEGER   NOT NULL DEFAULT 1,
+  feed_ordered        INTEGER   NOT NULL DEFAULT 1,
+  feed_all_audio      INTEGER   NOT NULL DEFAULT 1,
+  feed_is_music       INTEGER   NOT NULL DEFAULT 0,
+  feed_limit_amount   INTEGER   NOT NULL DEFAULT 3,
+  feed_limit_period   INTEGER   NOT NULL DEFAULT 604800, -- 1 week in seconds
   CONSTRAINT enabled_is_bool CHECK (feed_enabled IN (0,1)),
   CONSTRAINT ordered_is_bool CHECK (feed_ordered IN (0,1)),
   CONSTRAINT all_audio_is_bool CHECK (feed_all_audio IN (0,1)),
@@ -147,10 +188,38 @@ CREATE TABLE playlists (
 SQL
 	}
 
+	if ($db_vers < 3) {
+		push @sql, <<SQL;
+CREATE TABLE status_codes (
+  status_code   INTEGER   NOT NULL PRIMARY KEY,
+  status_descr  TEXT      NOT NULL
+)
+SQL
+		push @sql, q{INSERT INTO status_codes VALUES(0, 'OK')};
+		push @sql, q{INSERT INTO status_codes VALUES(1, 'Limit Exceeded')};
+		push @sql, q{INSERT INTO status_codes VALUES(2, 'HTTP Error (download failed)')};
+		push @sql, q{INSERT INTO status_codes VALUES(3, 'Feed parse failed')};
+		push @sql, <<SQL;
+CREATE TABLE fetches (
+  fetch_no       INTEGER   NOT NULL PRIMARY KEY,
+  feed_no        INTEGER   NOT NULL REFERENCES feeds,
+  fetch_status   INTEGER   NULL REFERENCES status_codes,
+  fetch_when     INTEGER   NOT NULL -- unix timestamp
+)
+SQL
+	}
+
 	if ($db_vers == 1) {
 		# 1 → 2 upgrade, need to save old enclosures table because
 		# SQLite can't do ALTER TABLE well enough.
 		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v1};
+	}
+
+	if ($db_vers == 1 || $db_vers == 2) {
+		push @sql,
+			q{ALTER TABLE feeds ADD feed_limit_amount INTEGER NOT NULL DEFAULT 3},
+			q{ALTER TABLE feeds ADD feed_limit_period INTEGER NOT NULL DEFAULT 604800};
+
 		push @sql, q{DROP VIEW valids};
 		push @sql, q{DROP VIEW oldest_unplayed};
 	}
@@ -177,10 +246,13 @@ SQL
 CREATE TABLE articles (
   article_no       INTEGER   NOT NULL PRIMARY KEY,
   feed_no          INTEGER   NOT NULL REFERENCES feeds,
+  fetch_no         INTEGER   NULL REFERENCES fetches,
   article_when     INTEGER   NOT NULL, -- unix timestamp
+  article_use      INTEGER   NOT NULL DEFAULT 1,
   article_uid      TEXT      NULL,
   article_title    TEXT      NULL,
-  UNIQUE(feed_no, article_uid)
+  UNIQUE(feed_no, article_uid),
+  CONSTRAINT use_is_bool CHECK (article_use IN (0,1))
 )
 SQL
 		push @sql, <<SQL;
@@ -219,7 +291,15 @@ INSERT INTO articles_enclosures (article_no, enclosure_no)
 SQL
 	}
 
-	if ($db_vers == 0 || $db_vers == 1) {
+	if ($db_vers == 2) {
+		push @sql,
+			"ALTER TABLE articles ADD fetch_no INTEGER NULL REFERENCES fetches";
+
+		push @sql,
+			q{ALTER TABLE articles ADD article_use INTEGER NOT NULL DEFAULT 1 CONSTRAINT use_is_bool CHECK (article_use IN (0,1))};
+	}
+
+	if ($db_vers == 0 || $db_vers == 1 || $db_vers == 2) {
 		push @sql, <<SQL;
 CREATE VIEW oldest_unplayed AS
   SELECT a.feed_no, min(a.article_when) AS oldest
@@ -231,6 +311,7 @@ CREATE VIEW oldest_unplayed AS
       e.enclosure_file IS NOT NULL
       AND e.playlist_no IS NULL
       AND e.enclosure_use = 1
+      AND a.article_use = 1
     GROUP BY a.feed_no
 SQL
 		push @sql, <<SQL;
@@ -257,11 +338,13 @@ CREATE VIEW valids AS
     AND e.enclosure_time IS NOT NULL
     AND e.playlist_no IS NULL
     AND e.enclosure_use = 1
+    AND a.article_use = 1
 SQL
 	
-		# finally, set version
-		push @sql, q{PRAGMA user_version = 2};
 	}
+
+	# finally, set version
+	push @sql, q{PRAGMA user_version = 3};
 
 	return \@sql;
 }

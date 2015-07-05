@@ -24,6 +24,7 @@ use File::Find qw(find);
 use File::Path qw(mkpath);
 use File::Slurp qw(write_file);
 use File::Temp qw(tempfile);
+use Getopt::Long;
 use IPC::Run3;
 use List::MoreUtils qw(pairwise);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
@@ -35,12 +36,16 @@ use Text::ASCIITable;
 use XML::FeedPP;
 use Carp qw(longmess);
 
+BEGIN { -t STDOUT and $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
+use Pod::Usage;
+
 use FindBin;
 use lib "$FindBin::Bin/lib";
 use Podist::Database;
 
 use feature 'state';
 use feature 'switch';
+use feature 'say';
 use strict;
 
 my $DB;           # set by setup
@@ -59,34 +64,35 @@ my %SUFFIX_MAP = (
 	'application/x-ogg' => 'ogg',
 );
 
-setup();
-
-# Don't do this until after setup, because we need log4perl ready first!
-$SIG{__DIE__} = sub {
-	if ($^S) {
-		# We're in an eval {} and don't want log
-		# this message but catch it later
-		return;
-	}
-	$Log::Log4perl::caller_depth++;
-	LOGDIE longmess(@_);
-};
-
-register_commands();
-go();
-
-# functions only below
-exit 0;
+exit go();
+### functions only below ###
 
 sub go {
+	my $gopts = parse_global_opts();
+	setup($gopts->{config_dir});
+
+	# Don't do this until after setup, because we need log4perl ready
+	# first!
+	$SIG{__DIE__} = sub {
+		if ($^S) {
+			# We're in an eval {} and don't want log
+			# this message but catch it later
+			return;
+		}
+		$Log::Log4perl::caller_depth++;
+		LOGDIE longmess(@_);
+	};
+
 	unless (@ARGV) {
-		FATAL "You need to specify a command. Try $0 help";
+		FATAL "You need to specify a command. Try $0 --help";
 		exit 1;
 	}
 
+	register_commands();
+
 	my $cmd = lc(shift @ARGV);
 	unless (exists COMMAND->{$cmd}) {
-		FATAL "Unknown command '$cmd'. Try $0 help";
+		FATAL "Unknown command '$cmd'. Try $0 --help";
 		exit 1;
 	}
 
@@ -95,6 +101,8 @@ sub go {
 
 	TRACE("Command done; committing");
 	$DB->commit();
+
+	return 0;
 }
 
 sub register_commands {
@@ -116,9 +124,8 @@ sub register_commands {
 			all_playlists => \&all_playlists,
 
 			status    => \&status,
+			list      => \&list,
 		    cleanup   => \&cleanup,
-
-			help => \&help,
 		};
 	};
 	TRACE("Commands registered");
@@ -141,24 +148,67 @@ sub catch {
 }
 
 sub fetch {
-	TRACE("Finding enabled feeds in db");
-	my $sth = $DB->prepare(<<QUERY);
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+
+	my (@only_feeds, $override_fetch_limit);
+	$go->getoptions(
+		'feeds|f=i{1,}' => \@only_feeds,
+		'new-limit|limit|fetch-limit|l=i' => \$override_fetch_limit
+	) or pod2usage(2);
+
+	my $sth_feeds;
+	if (@only_feeds) {
+		TRACE("Grabbing specified feed @{[join q{,}, @only_feeds]} from DB");
+		$sth_feeds = $DB->prepare(<<QUERY);
 SELECT
-    feed_no, feed_name, feed_url, feed_all_audio
+    feed_no, feed_name, feed_url, feed_all_audio,
+    feed_limit_amount, feed_limit_period
+  FROM feeds
+  WHERE feed_no IN (@{[join q{,}, @only_feeds]})
+  ORDER BY feed_no
+QUERY
+	} else {
+		TRACE("Finding enabled feeds in db");
+		$sth_feeds = $DB->prepare(<<QUERY);
+SELECT
+    feed_no, feed_name, feed_url, feed_all_audio,
+    feed_limit_amount, feed_limit_period
   FROM feeds
   WHERE feed_enabled = 1
   ORDER BY feed_no
 QUERY
-	$sth->execute;
+	}
+	$sth_feeds->execute;
 
-	while (my ($feed_no, $feed_name, $feed_url, $all_audio)
-		= $sth->fetchrow_array)
+	my $sth_used = $DB->prepare(<<QUERY);
+SELECT COUNT(*)
+  FROM fetches f JOIN articles a ON (f.fetch_no = a.fetch_no)
+  WHERE a.article_use = 1 AND f.feed_no = ? AND f.fetch_when >= ?
+QUERY
+
+	FEED: while (my ($feed_no, $feed_name, $feed_url, $all_audio, $limit_amount, $limit_period)
+		= $sth_feeds->fetchrow_array)
 	{
-		INFO("Fetching $feed_name (feed#$feed_no)");
+		$sth_used->execute($feed_no, time-$limit_period);
+		my ($limit_used) = $sth_used->fetchrow_array;
+		$sth_used->finish;
+
+		my $limit_remain = $override_fetch_limit
+			// ($limit_amount - $limit_used);
+		if ($limit_remain <= 0) {
+			WARN("Skipping $feed_name (#$feed_no) because limit fully used.");
+			next;
+		}
+
+		my $fetch_no = $DB->add_fetch($feed_no);
+		INFO("Fetching $feed_name (feed#$feed_no, fetch#$fetch_no, limit=$limit_remain)");
+		$DB->do("SAVEPOINT one_fetch");
 		my $resp = USER_AGENT->get($feed_url);
 		unless ($resp->is_success) {
 			ERROR("Downloading of $feed_name from $feed_url failed:");
 			ERROR($resp->status_line);
+			$DB->finish_fetch($fetch_no, 'http_error');
 
 			next; # ignore this feed
 		}
@@ -177,6 +227,7 @@ QUERY
 		};
 		if ($@) {
 			ERROR("Feed parse exploded: $@");
+			$DB->finish_fetch($fetch_no, 'parse_error');
 			next;
 		}
 		unless ($feed) {
@@ -185,16 +236,12 @@ QUERY
 		}
 
 		my ($date_last1, $date_last2);
-		foreach my $item ($feed->get_item) {
+		my $item_count = 0;
+		ITEM: foreach my $item ($feed->get_item) {
 			my $enc_url = $item->get('enclosure@url');
 			(my $item_title = $item->title) =~ y/\x0a\x0d/ /;
 			$item_title =~ s/^\s+//;
 			$item_title =~ s/\s+$//;
-
-			if ($item_title =~ CONFIG->{article}{titleignorere}) {
-				TRACE("Skipping title-ignored $item_title.");
-				next;
-			}
 
 			unless ($enc_url) {
 				my $msg = "Item $item_title has no enclosure";
@@ -254,26 +301,47 @@ QUERY
 				TRACE("Skipping already-in-db article.");
 				next;
 			}
+
+			my $article_use = 1;
+			if ($item_title =~ CONFIG->{article}{titleignorere}) {
+				INFO("Will set don't-use on title-ignored $item_title.");
+				$article_use = 0;
+			}
+
 			$article_no = $DB->add_article(
 				feed  => $feed_no,
+				fetch => $fetch_no,
+				use   => $article_use,
 				uid   => scalar($item->guid),
 				title => $item_title,
 				when  => $date
 			);
 			DEBUG("Added article $article_no to DB for \"$item_title\"");
 
-			my $enclosure_no = $DB->find_enclosure($enc_url);
-			if (!$enclosure_no) {
-				$enclosure_no = $DB->add_enclosure($enc_url);
-				DEBUG(qq{Added enclosure $enclosure_no for "$enc_url".});
+			if ($article_use) {
+				++$item_count;
+				if ($item_count > $limit_remain) {
+					ERROR("Feed $feed_name (#$feed_no) exceeded new article limit ($limit_remain). Rolling back.");
+					$DB->do(q{ROLLBACK TO SAVEPOINT one_fetch});
+					$DB->finish_fetch($fetch_no, 'Limit');
+					next FEED;
+				}
+				my $enclosure_no = $DB->find_enclosure($enc_url);
+				if (!$enclosure_no) {
+					$enclosure_no = $DB->add_enclosure($enc_url);
+					DEBUG(qq{Added enclosure $enclosure_no for "$enc_url".});
+				}
+				$DB->link_article_enclosure($article_no, $enclosure_no);
+				TRACE("Linked enclosure $enclosure_no to article $article_no");
 			}
-			$DB->link_article_enclosure($article_no, $enclosure_no);
-			TRACE("Linked enclosure $enclosure_no to article $article_no");
-
 
 			$date_last2 = $date_last1;
 			$date_last1 = $date;
 		}
+
+		# we got here, so it's OK.
+		$DB->finish_fetch($fetch_no, 'OK');
+		$DB->do(q{RELEASE SAVEPOINT one_fetch});
 	}
 }
 
@@ -386,6 +454,7 @@ SELECT
     LEFT JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
   WHERE
     COALESCE(e.enclosure_use,1) = 1 -- COALESCE due to LEFT JOIN
+    AND COALESCE(a.article_use,1) = 1 -- COALESCE due to LEFT JOIN
   GROUP BY feed_name
   HAVING
     f.feed_enabled = 1 OR cnt > 0
@@ -433,7 +502,7 @@ SELECT
     END AS "4ever"
   FROM
     feeds f
-    LEFT JOIN articles a ON (f.feed_no = a.feed_no)
+    LEFT JOIN articles a ON (f.feed_no = a.feed_no AND a.article_use = 1)
     LEFT JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
     LEFT JOIN enclosures e ON (
       ae.enclosure_no = e.enclosure_no AND e.enclosure_use = 1
@@ -458,6 +527,32 @@ QUERY
 	$tab->addRow('TOTAL', map format_perday($_), @total);
 	$tab->addRow('', map sprintf("%im", $_*60), @total);
 	print $tab;
+}
+
+sub list {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+
+	my %opts;
+	$go->getoptions(\%opts, qw(feeds|f) ) or pod2usage(2);
+	keys %opts or pod2usage("Need to specify something to list.");
+	
+	if ($opts{feeds}) {
+		my $tab = Text::ASCIITable->new({
+				outputWidth => 72,
+				headingText => 'Feeds'
+		});
+		$tab->setCols('Enabled', 'Feed Name', 'Feed #');
+		$tab->addRow(@$_) foreach @{$DB->selectall_arrayref(<<QUERY)};
+SELECT
+	CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END, 
+    feed_name,
+	feed_no
+  FROM feeds
+  ORDER BY feed_enabled DESC, feed_name ASC
+QUERY
+		say $tab;
+	}
 }
 
 sub format_perday {
@@ -941,67 +1036,45 @@ sub find_random_items {
 	return @files;
 }
 
-sub help {
-	print STDERR <<HELP;
-Usage - $0 command arguments
-
-Commands are:
-
-   subscribe, new, add Name URL
-      Subscribe to a new podcast named Name with feed at URL. URL
-      should be the RSS or Atom feed. Name is anything you want, but
-      must be unique for all your subscribed podcasts. Remember to quote
-      Name and URL for your shell.
-
-   catch
-     Run the podcatcher. The same as fetch, download, and stopwatch (in
-     that order) below.
-
-   fetch
-      Grabs the subscribed RSS feeds and adds all the enclosures to the
-      database. Does not actually download the enclosures.
-
-   download
-      Downloads enclosures that are in the database (from fetch) but not
-      yet downloaded.
-
-   hash
-      Calculates the hash for each downloaded podcast and stores this in
-      the database. The hash is used to catch duplicates.
-
-   originalize
-      Finds duplicate podcasts based on their hash, and marks the second
-      (and third, etc.) copies such that they won't be used.
-
-   stopwatch
-      Calculates how long each downloaded podcast is, and stores this
-      information in the database.
-
-   playlist
-      Builds playlists based on downloaded, stopwatched media in the
-      database.
-
-   status
-      Shows a summary of what's in the database.
-
-   cleanup
-      Do various once-in-a-while cleanup tasks, like moving enclosures
-	  that we're not going to use (duplicates, manually set to not use
-	  in database, etc.) to the unusable folder.
-   
-   help
-      Duh.
-HELP
-}
-
 sub notaint {
 	defined $_[0] or return undef;
 	$_[0] =~ /^(.+)$/s;
 	$1;
 }
 
+sub parse_global_opts {
+	my ($help, $man, $confdir);
+	my $getopt = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order bundling)]);
+	$getopt->getoptions(
+		'help|?'               => \$help,
+		'man|manual'           => \$man,
+		'conf-dir|confdir|c=s' => \$confdir
+	) or pod2usage(2);
+
+	if ($help) {
+		pod2usage(
+			-exitval => 0,
+			-verbose => 99,
+			-sections => [ 'SYNOPSIS', 'GLOBAL OPTIONS', 'COMMAND SUMMARY' ],
+			-output => \*STDOUT,
+		);
+	}
+
+	if ($man) {
+		pod2usage(
+			-exitval => 0,
+			-verbose => 2,
+			-output => \*STDOUT,
+		);
+		exit 0;
+	}
+
+	return { config_dir => $confdir };
+}
+
 sub setup {
-	my $confdir = notaint("$ENV{HOME}/.podist");
+	my $confdir = shift // notaint("$ENV{HOME}/.podist");
 
 	-d $confdir
 		or mkdir $confdir
@@ -1308,3 +1381,147 @@ sub USER_AGENT() {
 
 	return $agent;
 }
+
+__END__
+
+=encoding utf8
+
+=head1 NAME
+
+Podist - A podcatcher
+
+=head1 SYNOPSIS
+
+podist [I<global-options>] I<command> [I<command-options>] [I<arguments>]
+
+podist --help
+
+podist --manual
+
+=head1 COMMAND SUMMARY
+
+B<catch> — Find & download new episodes.
+
+B<subscribe> I<name> I<url> — Subcribe to a new feed at I<url> and call
+it I<name>.
+
+B<playlist> — Generate a playlist.
+
+B<status> — Show unplayed counts & other statistics.
+
+=head1 GLOBAL OPTIONS
+
+=over
+
+=item B<--conf-dir>
+
+Directory to store the configuration file in. Also the default place to
+store the SQLite database.
+
+=item B<--help>
+
+Displays help.
+
+=item B<--man>
+
+Displays the manual page.
+
+=back
+
+=head1 COMMANDS IN DETAIL
+
+=head2 B<subscribe> | B<new> | B<add> I<name> I<URL>
+
+Subscribe to a new podcast named Name with feed at URL. URL should be
+the RSS or Atom feed. Name is anything you want, but must be unique for
+all your subscribed podcasts. Remember to quote Name and URL for your
+shell.
+
+=over
+
+=item I<name>
+
+What to call this podcast. Used in messages, status output, etc. Any
+string you'd like.
+
+=item I<URL>
+
+URL of the feed. All common formats are accepted (Atom and multiple
+versions of RSS).
+
+=back
+
+=head2 B<catch>
+
+Run the podcatcher. The same as fetch, download, and stopwatch (in that
+order) below.
+
+=head2 B<fetch> [ --feeds I<feed_no> ... ] [ --limit I<N> ]
+
+Grabs the subscribed RSS feeds and adds all the enclosures to the
+database. Does not actually download the enclosures.
+
+=over
+
+=item B<--feeds> | B<-f> I<feed_number> ...
+
+One of more feeds to fetch. This overrides the default of fetching all
+enabled feeds. Note that with this, you can even fetch disabled feeds.
+
+Note that feeds are specified by their feed number, which can be
+discovered using the L<C<list --feeds>|/"list"> command.
+
+=item B<--fetch-limit> | B<--new-limit> | B<--limit> | S<B<-l> I<N>>
+
+Override the database-set limit of new items to grab from the feed. This
+is useful when something special happens on a feed and you actually do
+want to grab those 20 new episodes that were posted.
+
+=back
+
+=head2 B<download>
+
+Downloads enclosures that are in the database (from fetch) but not
+yet downloaded.
+
+=head2 B<hash>
+
+Calculates the hash for each downloaded podcast and stores this in
+the database. The hash is used to catch duplicates.
+
+=head2 B<originalize>
+
+Finds duplicate podcasts based on their hash, and marks the second
+(and third, etc.) copies such that they won't be used.
+
+=head2 B<stopwatch>
+
+Calculates how long each downloaded podcast is, and stores this
+information in the database.
+
+=head2 B<playlist>
+
+Builds playlists based on downloaded, stopwatched media in the
+database.
+
+=head2 B<status>
+
+Shows a summary of what's in the database.
+
+=head2 B<list> I<options>
+
+Shows various things from the database.
+
+=over
+
+=item B<--feeds> | B<-f>
+
+List the feeds in the database, both enabled and disabled.
+
+=back
+
+=head2 B<cleanup>
+
+Do various once-in-a-while cleanup tasks, like moving enclosures
+that we're not going to use (duplicates, manually set to not use
+in database, etc.) to the unusable folder.

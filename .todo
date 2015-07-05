@@ -1,5 +1,11 @@
 <?xml version="1.0"?>
 <todo version="0.1.20">
+    <note priority="verylow" time="1433650768">
+        Specify all feed options when adding a feed. Missing a lot that are db-only now.
+    </note>
+    <note priority="low" time="1434066868">
+        Add oldest unplaylisted to status
+    </note>
     <note priority="low" time="1433315474">
         Support for multiple shorts in a row (e.g., target x minutes). Mainly thinking of Composers Datebook.
     </note>
@@ -42,16 +48,28 @@
             done
         </comment>
     </note>
-    <note priority="high" time="1433372716">
+    <note priority="high" time="1433372716" done="1433480610">
         Use/don't use flag for articles
-        <note priority="medium" time="1433372737">
+        <note priority="medium" time="1433372737" done="1433480606">
             Re-work ignore to set don't use.
         </note>
     </note>
-    <note priority="high" time="1433372696">
+    <note priority="high" time="1433372696" done="1436126582">
         Per-feed, per-day since last fetch maximum articles to add
+        <note priority="medium" time="1434085588" done="1434086353">
+            Set fetch status when download fails or when parse fails (currently leave as null)
+        </note>
+        <note priority="medium" time="1433650928" done="1436125290">
+            Option to ignore limit temporarily.
+        </note>
+        <note priority="medium" time="1433650903" done="1436125298">
+            Option to limit fetch operation to a single feed.
+        </note>
     </note>
     <note priority="high" time="1222403940" done="1433255148">
         Implement RandomMedia.
+    </note>
+    <note priority="veryhigh" time="1433480122">
+        Desperately need basic test suite. (Do the database migrations work? Who knows...)
     </note>
 </todo>
