@@ -59,10 +59,10 @@
         <note priority="medium" time="1434085588" done="1434086353">
             Set fetch status when download fails or when parse fails (currently leave as null)
         </note>
-        <note priority="medium" time="1433650928">
+        <note priority="medium" time="1433650928" done="1436125290">
             Option to ignore limit temporarily.
         </note>
-        <note priority="medium" time="1433650903">
+        <note priority="medium" time="1433650903" done="1436125298">
             Option to limit fetch operation to a single feed.
         </note>
     </note>

@@ -144,8 +144,29 @@ sub catch {
 }
 
 sub fetch {
-	TRACE("Finding enabled feeds in db");
-	my $sth_feeds = $DB->prepare(<<QUERY);
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+
+	my (@only_feeds, $override_fetch_limit);
+	$go->getoptions(
+		'feeds|f=i{1,}' => \@only_feeds,
+		'new-limit|limit|fetch-limit|l=i' => \$override_fetch_limit
+	) or pod2usage(2);
+
+	my $sth_feeds;
+	if (@only_feeds) {
+		TRACE("Grabbing specified feed @{[join q{,}, @only_feeds]} from DB");
+		$sth_feeds = $DB->prepare(<<QUERY);
+SELECT
+    feed_no, feed_name, feed_url, feed_all_audio,
+    feed_limit_amount, feed_limit_period
+  FROM feeds
+  WHERE feed_no IN (@{[join q{,}, @only_feeds]})
+  ORDER BY feed_no
+QUERY
+	} else {
+		TRACE("Finding enabled feeds in db");
+		$sth_feeds = $DB->prepare(<<QUERY);
 SELECT
     feed_no, feed_name, feed_url, feed_all_audio,
     feed_limit_amount, feed_limit_period
@@ -153,6 +174,7 @@ SELECT
   WHERE feed_enabled = 1
   ORDER BY feed_no
 QUERY
+	}
 	$sth_feeds->execute;
 
 	my $sth_used = $DB->prepare(<<QUERY);
@@ -168,7 +190,8 @@ QUERY
 		my ($limit_used) = $sth_used->fetchrow_array;
 		$sth_used->finish;
 
-		my $limit_remain = $limit_amount - $limit_used;
+		my $limit_remain = $override_fetch_limit
+			// ($limit_amount - $limit_used);
 		if ($limit_remain <= 0) {
 			WARN("Skipping $feed_name (#$feed_no) because limit fully used.");
 			next;
@@ -1403,10 +1426,28 @@ versions of RSS).
 Run the podcatcher. The same as fetch, download, and stopwatch (in that
 order) below.
 
-=head2 B<fetch>
+=head2 B<fetch> [ --feeds I<feed_no> ... ] [ --limit I<N> ]
 
 Grabs the subscribed RSS feeds and adds all the enclosures to the
 database. Does not actually download the enclosures.
+
+=over
+
+=item B<--feeds> | B<-f> I<feed_number> ...
+
+One of more feeds to fetch. This overrides the default of fetching all
+enabled feeds. Note that with this, you can even fetch disabled feeds.
+
+Note that feeds are specified by their feed number, which can be
+discovered using the L</"list"> command.
+
+=item B<--fetch-limit> | B<--new-limit> | B<--limit> | S<B<-l> I<N>>
+
+Override the database-set limit of new items to grab from the feed. This
+is useful when something special happens on a feed and you actually do
+want to grab those 20 new episodes that were posted.
+
+=back
 
 =head2 B<download>
 
@@ -1436,6 +1477,10 @@ database.
 =head2 B<status>
 
 Shows a summary of what's in the database.
+
+=head2 B<list>
+
+Shows various things from the database.
 
 =head2 B<cleanup>
 
