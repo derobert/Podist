@@ -63,34 +63,35 @@ my %SUFFIX_MAP = (
 	'application/x-ogg' => 'ogg',
 );
 
-setup();
-
-# Don't do this until after setup, because we need log4perl ready first!
-$SIG{__DIE__} = sub {
-	if ($^S) {
-		# We're in an eval {} and don't want log
-		# this message but catch it later
-		return;
-	}
-	$Log::Log4perl::caller_depth++;
-	LOGDIE longmess(@_);
-};
-
-register_commands();
-go();
-
-# functions only below
-exit 0;
+exit go();
+### functions only below ###
 
 sub go {
+	my $gopts = parse_global_opts();
+	setup($gopts->{config_dir});
+
+	# Don't do this until after setup, because we need log4perl ready
+	# first!
+	$SIG{__DIE__} = sub {
+		if ($^S) {
+			# We're in an eval {} and don't want log
+			# this message but catch it later
+			return;
+		}
+		$Log::Log4perl::caller_depth++;
+		LOGDIE longmess(@_);
+	};
+
 	unless (@ARGV) {
-		FATAL "You need to specify a command. Try $0 help";
+		FATAL "You need to specify a command. Try $0 --help";
 		exit 1;
 	}
 
+	register_commands();
+
 	my $cmd = lc(shift @ARGV);
 	unless (exists COMMAND->{$cmd}) {
-		FATAL "Unknown command '$cmd'. Try $0 help";
+		FATAL "Unknown command '$cmd'. Try $0 --help";
 		exit 1;
 	}
 
@@ -121,8 +122,6 @@ sub register_commands {
 
 			status    => \&status,
 		    cleanup   => \&cleanup,
-
-			help => \&help,
 		};
 	};
 	TRACE("Commands registered");
@@ -984,23 +983,45 @@ sub find_random_items {
 	return @files;
 }
 
-sub help {
-	pod2usage(
-		-exitval => 'NOEXIT',
-		-verbose => 99,
-		-sections => [ 'SYNOPSIS', 'GLOBAL OPTIONS', 'SUMMARY' ],
-		-output => \*STDOUT,
-	);
-}
-
 sub notaint {
 	defined $_[0] or return undef;
 	$_[0] =~ /^(.+)$/s;
 	$1;
 }
 
+sub parse_global_opts {
+	my ($help, $man, $confdir);
+	my $getopt = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order bundling)]);
+	$getopt->getoptions(
+		'help|?'               => \$help,
+		'man'                  => \$man,
+		'conf-dir|confdir|c=s' => \$confdir
+	) or pod2usage(2);
+
+	if ($help) {
+		pod2usage(
+			-exitval => 0,
+			-verbose => 99,
+			-sections => [ 'SYNOPSIS', 'GLOBAL OPTIONS', 'COMMAND SUMMARY' ],
+			-output => \*STDOUT,
+		);
+	}
+
+	if ($man) {
+		pod2usage(
+			-exitval => 0,
+			-verbose => 2,
+			-output => \*STDOUT,
+		);
+		exit 0;
+	}
+
+	return { config_dir => $confdir };
+}
+
 sub setup {
-	my $confdir = notaint("$ENV{HOME}/.podist");
+	my $confdir = shift // notaint("$ENV{HOME}/.podist");
 
 	-d $confdir
 		or mkdir $confdir
@@ -1320,9 +1341,25 @@ Podist - A podcatcher
 
 podist [I<global-options>] I<command> [I<command-options>] [I<arguments>]
 
+=head1 COMMAND SUMMARY
+
+B<catch> — Find & download new episodes.
+
+B<subscribe> I<name> I<url> — Subcribe to a new feed at I<url> and call
+it I<name>.
+
+B<playlist> — Generate a playlist.
+
+B<status> — Show unplayed counts & other statistics.
+
 =head1 GLOBAL OPTIONS
 
 =over
+
+=item B<--conf-dir>
+
+Directory to store the configuration file in. Also the default place to
+store the SQLite database.
 
 =item B<--help>
 
@@ -1333,17 +1370,6 @@ Displays help.
 Displays the manual page.
 
 =back
-
-=head1 SUMMARY
-
-B<catch> — Find & download new episodes.
-
-B<subscribe> I<name> I<url> — Subcribe to a new feed at I<url> and call
-it I<name>.
-
-B<playlist> — Generate a playlist.
-
-B<status> — Show unplayed counts & other statistics.
 
 =head1 COMMANDS IN DETAIL
 
@@ -1414,7 +1440,3 @@ Shows a summary of what's in the database.
 Do various once-in-a-while cleanup tasks, like moving enclosures
 that we're not going to use (duplicates, manually set to not use
 in database, etc.) to the unusable folder.
-
-=head2 B<help>
-
-Duh.
