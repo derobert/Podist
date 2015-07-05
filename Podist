@@ -24,6 +24,7 @@ use File::Find qw(find);
 use File::Path qw(mkpath);
 use File::Slurp qw(write_file);
 use File::Temp qw(tempfile);
+use Getopt::Long;
 use IPC::Run3;
 use List::MoreUtils qw(pairwise);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
@@ -34,6 +35,9 @@ use POSIX qw(strftime);
 use Text::ASCIITable;
 use XML::FeedPP;
 use Carp qw(longmess);
+
+BEGIN { -t STDOUT and $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
+use Pod::Usage;
 
 use FindBin;
 use lib "$FindBin::Bin/lib";
@@ -981,56 +985,12 @@ sub find_random_items {
 }
 
 sub help {
-	print STDERR <<HELP;
-Usage - $0 command arguments
-
-Commands are:
-
-   subscribe, new, add Name URL
-      Subscribe to a new podcast named Name with feed at URL. URL
-      should be the RSS or Atom feed. Name is anything you want, but
-      must be unique for all your subscribed podcasts. Remember to quote
-      Name and URL for your shell.
-
-   catch
-     Run the podcatcher. The same as fetch, download, and stopwatch (in
-     that order) below.
-
-   fetch
-      Grabs the subscribed RSS feeds and adds all the enclosures to the
-      database. Does not actually download the enclosures.
-
-   download
-      Downloads enclosures that are in the database (from fetch) but not
-      yet downloaded.
-
-   hash
-      Calculates the hash for each downloaded podcast and stores this in
-      the database. The hash is used to catch duplicates.
-
-   originalize
-      Finds duplicate podcasts based on their hash, and marks the second
-      (and third, etc.) copies such that they won't be used.
-
-   stopwatch
-      Calculates how long each downloaded podcast is, and stores this
-      information in the database.
-
-   playlist
-      Builds playlists based on downloaded, stopwatched media in the
-      database.
-
-   status
-      Shows a summary of what's in the database.
-
-   cleanup
-      Do various once-in-a-while cleanup tasks, like moving enclosures
-	  that we're not going to use (duplicates, manually set to not use
-	  in database, etc.) to the unusable folder.
-   
-   help
-      Duh.
-HELP
+	pod2usage(
+		-exitval => 'NOEXIT',
+		-verbose => 99,
+		-sections => [ 'SYNOPSIS', 'GLOBAL OPTIONS', 'SUMMARY' ],
+		-output => \*STDOUT,
+	);
 }
 
 sub notaint {
@@ -1347,3 +1307,114 @@ sub USER_AGENT() {
 
 	return $agent;
 }
+
+__END__
+
+=encoding utf8
+
+=head1 NAME
+
+Podist - A podcatcher
+
+=head1 SYNOPSIS
+
+podist [I<global-options>] I<command> [I<command-options>] [I<arguments>]
+
+=head1 GLOBAL OPTIONS
+
+=over
+
+=item B<--help>
+
+Displays help.
+
+=item B<--man>
+
+Displays the manual page.
+
+=back
+
+=head1 SUMMARY
+
+B<catch> — Find & download new episodes.
+
+B<subscribe> I<name> I<url> — Subcribe to a new feed at I<url> and call
+it I<name>.
+
+B<playlist> — Generate a playlist.
+
+B<status> — Show unplayed counts & other statistics.
+
+=head1 COMMANDS IN DETAIL
+
+=head2 B<subscribe> | B<new> | B<add> I<name> I<URL>
+
+Subscribe to a new podcast named Name with feed at URL. URL should be
+the RSS or Atom feed. Name is anything you want, but must be unique for
+all your subscribed podcasts. Remember to quote Name and URL for your
+shell.
+
+=head3 ARGUMENTS
+
+=over
+
+=item B<name>
+
+What to call this podcast. Used in messages, status output, etc. Any
+string you'd like.
+
+=item B<URL>
+
+URL of the feed. All common formats are accepted (Atom and multiple
+versions of RSS).
+
+=back
+
+=head2 B<catch>
+
+Run the podcatcher. The same as fetch, download, and stopwatch (in that
+order) below.
+
+=head2 B<fetch>
+
+Grabs the subscribed RSS feeds and adds all the enclosures to the
+database. Does not actually download the enclosures.
+
+=head2 B<download>
+
+Downloads enclosures that are in the database (from fetch) but not
+yet downloaded.
+
+=head2 B<hash>
+
+Calculates the hash for each downloaded podcast and stores this in
+the database. The hash is used to catch duplicates.
+
+=head2 B<originalize>
+
+Finds duplicate podcasts based on their hash, and marks the second
+(and third, etc.) copies such that they won't be used.
+
+=head2 B<stopwatch>
+
+Calculates how long each downloaded podcast is, and stores this
+information in the database.
+
+=head2 B<playlist>
+
+Builds playlists based on downloaded, stopwatched media in the
+database.
+
+=head2 B<status>
+
+Shows a summary of what's in the database.
+
+=head2 B<cleanup>
+
+Do various once-in-a-while cleanup tasks, like moving enclosures
+that we're not going to use (duplicates, manually set to not use
+in database, etc.) to the unusable folder.
+
+=head2 B<help>
+
+Duh.
