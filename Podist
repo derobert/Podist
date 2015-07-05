@@ -45,6 +45,7 @@ use Podist::Database;
 
 use feature 'state';
 use feature 'switch';
+use feature 'say';
 use strict;
 
 my $DB;           # set by setup
@@ -123,6 +124,7 @@ sub register_commands {
 			all_playlists => \&all_playlists,
 
 			status    => \&status,
+			list      => \&list,
 		    cleanup   => \&cleanup,
 		};
 	};
@@ -525,6 +527,32 @@ QUERY
 	$tab->addRow('TOTAL', map format_perday($_), @total);
 	$tab->addRow('', map sprintf("%im", $_*60), @total);
 	print $tab;
+}
+
+sub list {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+
+	my %opts;
+	$go->getoptions(\%opts, qw(feeds|f) ) or pod2usage(2);
+	keys %opts or pod2usage("Need to specify something to list.");
+	
+	if ($opts{feeds}) {
+		my $tab = Text::ASCIITable->new({
+				outputWidth => 72,
+				headingText => 'Feeds'
+		});
+		$tab->setCols('Enabled', 'Feed Name', 'Feed #');
+		$tab->addRow(@$_) foreach @{$DB->selectall_arrayref(<<QUERY)};
+SELECT
+	CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END, 
+    feed_name,
+	feed_no
+  FROM feeds
+  ORDER BY feed_enabled DESC, feed_name ASC
+QUERY
+		say $tab;
+	}
 }
 
 sub format_perday {
@@ -1441,7 +1469,7 @@ One of more feeds to fetch. This overrides the default of fetching all
 enabled feeds. Note that with this, you can even fetch disabled feeds.
 
 Note that feeds are specified by their feed number, which can be
-discovered using the L</"list"> command.
+discovered using the L<C<list --feeds>|/"list"> command.
 
 =item B<--fetch-limit> | B<--new-limit> | B<--limit> | S<B<-l> I<N>>
 
@@ -1480,9 +1508,17 @@ database.
 
 Shows a summary of what's in the database.
 
-=head2 B<list>
+=head2 B<list> I<options>
 
 Shows various things from the database.
+
+=over
+
+=item B<--feeds> | B<-f>
+
+List the feeds in the database, both enabled and disabled.
+
+=back
 
 =head2 B<cleanup>
 
