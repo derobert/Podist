@@ -3,6 +3,9 @@
     <note priority="verylow" time="1433650768">
         Specify all feed options when adding a feed. Missing a lot that are db-only now.
     </note>
+    <note priority="low" time="1436920611">
+        Parallel download (grab from multiple servers at once)
+    </note>
     <note priority="low" time="1434066868">
         Add oldest unplaylisted to status
     </note>
