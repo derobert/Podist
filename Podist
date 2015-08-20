@@ -53,9 +53,10 @@ sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
 
 my %SUFFIX_MAP = (
-	'audio/mpeg'        => 'mp3',
-	'audio/x-mpeg'      => 'mp3',    # retards
-	'audio/x-mp3'       => 'mp3',    # morons
+	'audio/mpeg'        => 'mp3',    # RFC 3003
+	'audio/x-mpeg'      => 'mp3',    # pre-2000
+	'audio/x-mp3'       => 'mp3',    # err?
+	'audio/mp3'         => 'mp3',    # umm?
 	'x-audio/mp3'       => 'mp3',    # idiots
 	'audio/ogg'         => 'ogg',
 	'audio/x-ogg'       => 'ogg',
