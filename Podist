@@ -433,12 +433,14 @@ QUERY
 }
 
 sub status {
+	# 31,556,952 seconds = 1 (average) year on Gregorian calendar,
+	# presuming 86400 seconds/day.
 	my $tab = Text::ASCIITable->new({
 			outputWidth => 72,
 			headingText => 'Current Feed Status'
 	});
-	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst', 'Upl');
-	$tab->addRow(@$_[1..6]) foreach @{$DB->selectall_arrayref(<<QUERY)};
+	$tab->setCols('Feed', 'Casts', 'Hours', '%Dwnld', '%Plst', 'Upl', 'Oldest');
+	$tab->addRow(@$_[1..7]) foreach @{$DB->selectall_arrayref(<<QUERY)};
 SELECT
 	feed_enabled,
     feed_name,
@@ -446,7 +448,11 @@ SELECT
     ROUND(SUM(e.enclosure_time)/3600),
     SUM(CASE WHEN e.enclosure_file IS NULL THEN 0 ELSE 100 END)/COUNT(*),
     SUM(CASE WHEN e.playlist_no IS NULL THEN 0 ELSE 100 END)/COUNT(*) AS pct,
-    SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END) AS cnt
+    SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END) AS cnt,
+    CASE SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END)
+      WHEN 0 THEN ''
+      ELSE PRINTF('%0.2f', (STRFTIME('%s', 'now') - MIN(CASE WHEN e.playlist_no IS NULL THEN a.article_when ELSE null END))/31556952.0)
+    END
   FROM
     feeds f
     LEFT JOIN articles a ON (f.feed_no = a.feed_no)
