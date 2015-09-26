@@ -40,7 +40,7 @@ BEGIN { -t STDOUT and $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage;
 
 use FindBin;
-use lib "$FindBin::Bin/lib";
+use lib "$FindBin::RealBin/lib";
 use Podist::Database;
 
 use feature 'state';
