@@ -21,6 +21,12 @@
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
     </note>
+    <note priority="medium" time="1445791807">
+        Make everything care about article_use.
+        <note priority="medium" time="1445792498">
+            cleanup: should it clean up enclosures where all of the articles referencing them are _use=0? (If so, what if we get another article that uses the enclosure...)
+        </note>
+    </note>
     <note priority="medium" time="1433315290">
         "Play something" for when you're on the computer and want a podcast. Need to figure how that should interact with playlisted, but not yet played, podcasts.
     </note>
@@ -50,9 +56,6 @@
         <comment>
             done
         </comment>
-    </note>
-    <note priority="high" time="1445791807">
-        Make everything care about article_use. Currently, e.g., download does not.
     </note>
     <note priority="high" time="1433372716" done="1433480610">
         Use/don't use flag for articles

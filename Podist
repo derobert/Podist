@@ -351,10 +351,14 @@ sub download {
 	# deterministic.
 	TRACE("Finding undownloaded media");
 	my $sth = $DB->prepare(<<QUERY);
-SELECT enclosure_no, enclosure_url
-  FROM enclosures
-  WHERE enclosure_file IS NULL AND enclosure_use = 1
-  ORDER BY enclosure_url, enclosure_no
+SELECT DISTINCT e.enclosure_no, e.enclosure_url
+  FROM enclosures e
+  JOIN articles_enclosures ae ON (e.enclosure_no = ae.enclosure_no)
+  JOIN articles a ON (ae.article_no = a.article_no)
+  WHERE e.enclosure_file IS NULL
+    AND e.enclosure_use = 1
+    AND a.article_use = 1
+  ORDER BY e.enclosure_url, e.enclosure_no
 QUERY
 	$sth->execute;
 
