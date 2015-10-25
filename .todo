@@ -6,7 +6,7 @@
     <note priority="low" time="1436920611">
         Parallel download (grab from multiple servers at once)
     </note>
-    <note priority="low" time="1434066868">
+    <note priority="low" time="1434066868" done="1445791741">
         Add oldest unplaylisted to status
     </note>
     <note priority="low" time="1433315474">
@@ -50,6 +50,9 @@
         <comment>
             done
         </comment>
+    </note>
+    <note priority="high" time="1445791807">
+        Make everything care about article_use. Currently, e.g., download does not.
     </note>
     <note priority="high" time="1433372716" done="1433480610">
         Use/don't use flag for articles
