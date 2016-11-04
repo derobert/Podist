@@ -3,6 +3,7 @@ use feature 'state';
 use Carp;
 use DBI;
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
+use UUID;
 use Moose;
 use namespace::autoclean;
 
@@ -156,14 +157,15 @@ sub archive_playlist {
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 4;
+	my $current_vers = 5;
 
-	# Versions: 
+	# Versions:
 	# 0 - no db yet
 	# 1 - original
 	# 2 - store article info, not just enclosures
 	# 3 - per-fed, per-time limit; db logs fetches
 	# 4 - adds playlist archival
+	# 5 - podist_instance (UUID); add some indexes (performance)
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -207,6 +209,16 @@ SQL
 
 	if ($db_vers < 4) {    # including 0
 		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL};
+	}
+
+	if ($db_vers < 5) {
+		my $uuid = UUID::uuid();
+		push @sql, <<SQL;
+CREATE TABLE podist_instance (
+	podist_uuid   TEXT   NOT NULL
+)
+SQL
+		push @sql, qq{INSERT INTO podist_instance(podist_uuid) VALUES ('$uuid')}; # UUID is safe chars
 	}
 
 	if ($db_vers < 3) {
@@ -320,6 +332,12 @@ SQL
 			q{ALTER TABLE articles ADD article_use INTEGER NOT NULL DEFAULT 1 CONSTRAINT use_is_bool CHECK (article_use IN (0,1))};
 	}
 
+	if ($db_vers < 5) {
+		push @sql, <<SQL;
+CREATE INDEX articles_enclosures_enclosure_no ON articles_enclosures(enclosure_no);
+SQL
+	}
+
 	if ($db_vers == 0 || $db_vers == 1 || $db_vers == 2) {
 		push @sql, <<SQL;
 CREATE VIEW oldest_unplayed AS
@@ -365,7 +383,7 @@ SQL
 	}
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 4};
+	push @sql, q{PRAGMA user_version = 5};
 
 	return \@sql;
 }
