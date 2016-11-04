@@ -1030,7 +1030,6 @@ sub playlist_valid_where {
 }
 
 sub find_random_items {
-	my $dir = 
 	my @files;
 
 	find({
