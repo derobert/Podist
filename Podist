@@ -1159,11 +1159,13 @@ NotYetConfigured true
 DataDir $confdir # e.g., \$HOME/.podist
 
 <storage>
-	PendingMedia    \$HOME/Podist/media-pending
-	UnusableMedia   \$HOME/Podist/media-unusable
-	PlaylistedMedia \$HOME/Podist/media-listed
-	Playlists       \$HOME/Podist/playlists
-	RandomMedia     \$HOME/Podist/playlists/random
+	PendingMedia      \$HOME/Podist/media-pending
+	UnusableMedia     \$HOME/Podist/media-unusable
+	PlaylistedMedia   \$HOME/Podist/media-listed
+	Playlists         \$HOME/Podist/playlists
+	ArchivedPlaylists \$HOME/Podist/archived/playlist
+	ArchivedMedia     \$HOME/Podist/archived/media
+	RandomMedia       \$HOME/Podist/playlists/random
 </storage>
 
 <article>
