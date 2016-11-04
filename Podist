@@ -1156,8 +1156,8 @@ sub feed {
 		my $item = $feed->add_item(
 			title   => $title,
 			pubDate => $enc->{article_when},
-			source  => $enc->{feed_url});
-		$item->guid("podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no}, 0);
+		);
+		$item->guid("podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no}, 'false');
 		my $mime;
 		$enc->{enclosure_file} =~ /\.(\S{3})$/
 			and $mime = $MIME_MAP{lc $1};
@@ -1167,7 +1167,8 @@ sub feed {
 			file => $enc->{enclosure_file},
 		);
 		my $size = -s $file;
-		$item->set('enclosure@url', File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
+		$item->set('source@url', $enc->{feed_url});
+		$item->set('enclosure@url', CONFIG->{web}{feedurlbase} . File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
 		$item->set('enclosure@length', $size);
 		$item->set('enclosure@type', $mime) if defined $mime;
 	}
@@ -1298,6 +1299,10 @@ DataDir $confdir # e.g., \$HOME/.podist
 	ArchivedMedia     \$HOME/Podist/archived/media
 	RandomMedia       \$HOME/Podist/playlists/random
 </storage>
+
+<web>
+    FeedURLBase   http://yourserver/podist/
+</web>
 
 <article>
 	# Note this is after basic title whitespace normalization.
