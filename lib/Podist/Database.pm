@@ -144,6 +144,16 @@ sub finish_fetch {
 	$sth->execute($status, $fetch_no);
 }
 
+sub archive_playlist {
+	my ($self, $p_no) = @_;
+	my $sth = $self->prepare_cached(
+		q{UPDATE playlists SET playlist_archived = ? WHERE playlist_no = ?}
+	);
+
+	$sth->execute(time, $p_no);
+	return;
+}
+
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
 	my $current_vers = 4;

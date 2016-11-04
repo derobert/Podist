@@ -122,6 +122,7 @@ sub register_commands {
 
 			playlist  => \&playlist,
 			all_playlists => \&all_playlists,
+			archive   => \&archive,
 
 			status    => \&status,
 			list      => \&list,
@@ -752,7 +753,7 @@ sub playlist {
 	my $p_no = $DB->last_insert_id('', '', 'playlists', 'playlist_no')
 		or LOGDIE("Could not get playlist number");
 
-	my $plist_dir = notaint(CONFIG->{storage}{playlistedmedia}."/$p_no");
+	my $plist_dir = get_playlist_mediapath(playlist => $p_no);
 	-d $plist_dir
 		or mkpath $plist_dir
 		or LOGDIE("Could not create playlist media directory $plist_dir: $!");
@@ -899,8 +900,7 @@ QUERY
 		});
 	}
 
-	my $fname = notaint(
-		sprintf("%s/Playlist %03i.m3u", CONFIG->{storage}{playlists}, $p_no));
+	my $fname = get_playlist_path(playlist => $p_no);
 	DEBUG("Writing playlist $fname");
 	write_file($fname, map $_ =~ m!^/! ? "$_\n" : "$plist_dir/$_\n", @playlist);
 	TRACE("Moving files");
@@ -915,6 +915,31 @@ QUERY
 		rename($old, $new)
 			or LOGDIE("could not rename $old to $new");
 	}
+}
+
+sub get_playlist_path {
+	my %opts = @_;
+	$opts{playlist} // LOGDIE("get_playlist_path called w/o playlist");
+	$opts{archived} //= 0;
+
+	my $storage = $opts{archived}
+		? CONFIG->{storage}{archivedplaylists}
+		: CONFIG->{storage}{playlists};
+
+	return notaint(
+		sprintf("%s/Playlist %03i.m3u", $storage, $opts{playlist}));
+}
+
+sub get_playlist_mediapath {
+	my %opts = @_;
+	$opts{playlist} // LOGDIE("get_playlist_path called w/o playlist");
+	$opts{archived} //= 0;
+
+	my $storage = $opts{archived}
+		? CONFIG->{storage}{archivedmedia}
+		: CONFIG->{storage}{playlistedmedia};
+
+	return notaint("$storage/$opts{playlist}");
 }
 
 sub get_one_random {
@@ -1043,6 +1068,56 @@ sub find_random_items {
 		notaint(CONFIG->{storage}{randommedia}));
 
 	return @files;
+}
+
+sub archive {
+	if (0 == @ARGV) {
+		ERROR("No playlists specified to archive. Try --help");
+		return;
+	}
+
+	foreach my $arg (@ARGV) {
+		my $p_no;
+		if ($arg =~ /^[0-9]+$/) {
+			$p_no = 0 + $arg;
+		} elsif ($arg =~ /^Playlist ([0-9]+)\.m3u$/) {
+			$p_no = 0 + $1;
+		} else {
+			ERROR("Invalid playlist argument: '$arg'. Stopping!");
+			return;
+		}
+
+		my $m3u_src = get_playlist_path(playlist => $p_no, archived => 0);
+		my $m3u_dst = get_playlist_path(playlist => $p_no, archived => 1);
+		my $media_src = get_playlist_mediapath(playlist => $p_no, archived => 0);
+		my $media_dst = get_playlist_mediapath(playlist => $p_no, archived => 1);
+
+		# check dest first, to give a better error message (already
+		# archived)
+		-f $m3u_dst
+			and LOGDIE("Archived playlist $m3u_dst already exists!");
+		-f $m3u_src
+			or LOGDIE("Playlist $m3u_src does not exist");
+		-d $media_dst
+			and LOGDIE("Archived media $media_dst already exists!");
+		-d $media_src
+			or LOGDIE("Media directory $media_src does not exist");
+
+		# DB first since it can roll back
+		$DB->archive_playlist($p_no);
+
+		# then move
+		TRACE("Moving $m3u_src -> $m3u_dst")
+		move($m3u_src, $m3u_dst) or LOGDIE("move $m3u_src -> $m3u_dst: $!");
+		TRACE("Moving $media_src -> $media_dst")
+		move($media_src, $media_dst)
+			or LOGDIE("move $media_src -> $media_dst: $!");
+
+		# we commit after each archival, because a rollback wouldn't move
+		# the files back.
+		$DB->commit;
+		INFO("Archived playlist $p_no");
+	}
 }
 
 sub notaint {
@@ -1514,6 +1589,20 @@ information in the database.
 
 Builds playlists based on downloaded, stopwatched media in the
 database.
+
+=head2 B<archive> Plalist-1 ...
+
+Archives the given playlists. Playlists may be specified either as file
+names ("Playlist 625.m3u") or as plain numbers ("625"). At least one
+playlist must be specified.
+
+Archiving a playlist means that the files are moved to the archived
+playlists directory and the playlist is marked as archived in the
+database.
+
+Currently, the only effect on Podist operation is that archived
+playlists are not included in the generated feed (feed.xml in the
+playlist directory).
 
 =head2 B<status>
 
