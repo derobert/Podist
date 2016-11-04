@@ -199,15 +199,14 @@ CREATE TABLE feeds (
 SQL
 		push @sql, <<SQL;
 CREATE TABLE playlists (
-  playlist_no       INTEGER   NOT NULL PRIMARY KEY,
-  playlist_ctime    INTEGER   NOT NULL,
-  playlist_archived INTEGER   NULL
+  playlist_no    INTEGER   NOT NULL PRIMARY KEY,
+  playlist_ctime INTEGER   NOT NULL
 )
 SQL
 	}
 
-	if ($db_vers < 4) {
-		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL},
+	if ($db_vers < 4) {    # including 0
+		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL};
 	}
 
 	if ($db_vers < 3) {
