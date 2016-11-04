@@ -144,9 +144,26 @@ sub finish_fetch {
 	$sth->execute($status, $fetch_no);
 }
 
+sub archive_playlist {
+	my ($self, $p_no) = @_;
+	my $sth = $self->prepare_cached(
+		q{UPDATE playlists SET playlist_archived = ? WHERE playlist_no = ?}
+	);
+
+	$sth->execute(time, $p_no);
+	return;
+}
+
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 3;
+	my $current_vers = 4;
+
+	# Versions: 
+	# 0 - no db yet
+	# 1 - original
+	# 2 - store article info, not just enclosures
+	# 3 - per-fed, per-time limit; db logs fetches
+	# 4 - adds playlist archival
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -182,10 +199,15 @@ CREATE TABLE feeds (
 SQL
 		push @sql, <<SQL;
 CREATE TABLE playlists (
-  playlist_no    INTEGER   NOT NULL PRIMARY KEY,
-  playlist_ctime INTEGER   NOT NULL
+  playlist_no       INTEGER   NOT NULL PRIMARY KEY,
+  playlist_ctime    INTEGER   NOT NULL,
+  playlist_archived INTEGER   NULL
 )
 SQL
+	}
+
+	if ($db_vers < 4) {
+		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL},
 	}
 
 	if ($db_vers < 3) {
@@ -344,7 +366,7 @@ SQL
 	}
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 3};
+	push @sql, q{PRAGMA user_version = 4};
 
 	return \@sql;
 }
