@@ -1107,9 +1107,9 @@ sub archive {
 		$DB->archive_playlist($p_no);
 
 		# then move
-		TRACE("Moving $m3u_src -> $m3u_dst")
+		TRACE("Moving $m3u_src -> $m3u_dst");
 		move($m3u_src, $m3u_dst) or LOGDIE("move $m3u_src -> $m3u_dst: $!");
-		TRACE("Moving $media_src -> $media_dst")
+		TRACE("Moving $media_src -> $media_dst");
 		move($media_src, $media_dst)
 			or LOGDIE("move $media_src -> $media_dst: $!");
 
