@@ -3,12 +3,14 @@ use feature 'state';
 use Carp;
 use DBI;
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
+use UUID;
 use Moose;
 use namespace::autoclean;
 
 has dsn      => (required => 1, is => 'ro', isa => 'Str');
 has username => (required => 0, is => 'ro', isa => 'Str|Undef');
 has password => (required => 0, is => 'ro', isa => 'Str|Undef');
+has uuid     => (required => 0, is => 'ro', isa => 'Str', lazy => 1, builder => '_build_uuid');
 
 has _dbh => (
 	is       => 'ro',
@@ -154,16 +156,65 @@ sub archive_playlist {
 	return;
 }
 
+sub _build_uuid {
+	my ($self) = @_;
+	
+	my @row = $self->selectrow_array(
+		q{SELECT podist_uuid FROM podist_instance}
+	) or die "No rows in podist_instance?";
+
+	return $row[0];
+}
+
+sub unarchived_playlist_info {
+	my ($self) = @_;
+
+	my $sth = $self->prepare_cached(<<SQL);
+   SELECT info.*
+        , a.article_title AS article_title
+        , a.article_when AS article_when
+        , f.feed_name AS feed_name
+        , f.feed_url AS feed_url
+     FROM ( SELECT e.enclosure_no
+                 , e.enclosure_file
+                 , e.enclosure_time
+                 , e.playlist_no
+                 , e.playlist_so
+                 , p.playlist_archived
+                 , (   SELECT a.article_no
+                         FROM articles_enclosures ae
+                         JOIN articles a ON (ae.article_no = a.article_no)
+                        WHERE ae.enclosure_no = e.enclosure_no
+                          AND a.article_use = 1
+                     ORDER BY CASE WHEN a.article_title IS NULL THEN 1 ELSE 0 END, a.article_no
+                        LIMIT 1
+                   ) AS first_article_no
+              FROM enclosures e
+              JOIN playlists p ON (e.playlist_no = p.playlist_no)
+             WHERE p.playlist_archived IS NULL
+          ) AS info
+LEFT JOIN articles a ON (info.first_article_no = a.article_no)
+LEFT JOIN feeds f ON (a.feed_no = f.feed_no)
+ ORDER BY playlist_no, playlist_so
+SQL
+	$sth->execute;
+	my $res = $sth->fetchall_arrayref({});
+	$sth->finish;
+
+	return $res;
+}
+
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 4;
+	my $current_vers = 5;
 
-	# Versions: 
+	# Versions:
 	# 0 - no db yet
 	# 1 - original
 	# 2 - store article info, not just enclosures
 	# 3 - per-fed, per-time limit; db logs fetches
 	# 4 - adds playlist archival
+	# 5 - podist_instance (UUID); add some indexes (performance)
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -207,6 +258,16 @@ SQL
 
 	if ($db_vers < 4) {    # including 0
 		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL};
+	}
+
+	if ($db_vers < 5) {
+		my $uuid = UUID::uuid();
+		push @sql, <<SQL;
+CREATE TABLE podist_instance (
+	podist_uuid   TEXT   NOT NULL
+)
+SQL
+		push @sql, qq{INSERT INTO podist_instance(podist_uuid) VALUES ('$uuid')}; # UUID is safe chars
 	}
 
 	if ($db_vers < 3) {
@@ -320,6 +381,12 @@ SQL
 			q{ALTER TABLE articles ADD article_use INTEGER NOT NULL DEFAULT 1 CONSTRAINT use_is_bool CHECK (article_use IN (0,1))};
 	}
 
+	if ($db_vers < 5) {
+		push @sql, <<SQL;
+CREATE INDEX articles_enclosures_enclosure_no ON articles_enclosures(enclosure_no);
+SQL
+	}
+
 	if ($db_vers == 0 || $db_vers == 1 || $db_vers == 2) {
 		push @sql, <<SQL;
 CREATE VIEW oldest_unplayed AS
@@ -365,7 +432,7 @@ SQL
 	}
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 4};
+	push @sql, q{PRAGMA user_version = 5};
 
 	return \@sql;
 }

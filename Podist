@@ -22,6 +22,7 @@ use Digest;
 use File::Copy qw(move);
 use File::Find qw(find);
 use File::Path qw(mkpath);
+use File::Spec;
 use File::Slurp qw(write_file);
 use File::Temp qw(tempfile);
 use Getopt::Long;
@@ -62,6 +63,10 @@ my %SUFFIX_MAP = (
 	'audio/x-ogg'       => 'ogg',
 	'application/ogg'   => 'ogg',
 	'application/x-ogg' => 'ogg',
+);
+my %MIME_MAP = (
+	mp3 => 'audio/mpeg',
+	ogg => 'audio/ogg',
 );
 
 exit go();
@@ -123,6 +128,8 @@ sub register_commands {
 			playlist  => \&playlist,
 			all_playlists => \&all_playlists,
 			archive   => \&archive,
+			
+			feed      => \&feed,
 
 			status    => \&status,
 			list      => \&list,
@@ -932,7 +939,7 @@ sub get_playlist_path {
 
 sub get_playlist_mediapath {
 	my %opts = @_;
-	$opts{playlist} // LOGDIE("get_playlist_path called w/o playlist");
+	$opts{playlist} // LOGDIE("get_playlist_mediapath called w/o playlist");
 	$opts{archived} //= 0;
 
 	my $storage = $opts{archived}
@@ -940,6 +947,16 @@ sub get_playlist_mediapath {
 		: CONFIG->{storage}{playlistedmedia};
 
 	return notaint("$storage/$opts{playlist}");
+}
+
+sub find_mediafile {
+	my %opts = @_;
+
+	$opts{playlist} // LOGDIE("TODO: find_mediafile for non-playlisted");
+	$opts{archived} //= 0;
+	$opts{file} // LOGDIE("find_mediafile not given file name");
+
+	get_playlist_mediapath(%opts) . '/' . $opts{file};
 }
 
 sub get_one_random {
@@ -1120,6 +1137,46 @@ sub archive {
 	}
 }
 
+sub feed {
+	# TODO: Somehow get the random between-podcast items, but not of
+	#       course the leadout.
+	my $feed = XML::FeedPP::RSS->new(
+		title       => 'Podist RSS Export',
+		link        => 'https://github.com/derobert/Podist',
+		description => q{RSS export of current playlists in Podist},
+		generator   => 'Podist',
+		pubDate     => time(),
+	);
+
+	foreach my $enc (@{ $DB->unarchived_playlist_info }) {
+		my $title = sprintf('[%03i-%02i] %s (%s)',
+			$enc->{playlist_no}, $enc->{playlist_so},
+			($enc->{article_title} // $enc->{enclosure_file}),
+			$enc->{feed_name});
+		my $item = $feed->add_item(
+			title   => $title,
+			pubDate => $enc->{article_when},
+		);
+		$item->guid("podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no}, 'false');
+		my $mime;
+		$enc->{enclosure_file} =~ /\.(\S{3})$/
+			and $mime = $MIME_MAP{lc $1};
+		my $file = find_mediafile(
+			playlist => $enc->{playlist_no},
+			archived => defined $enc->{playlist_archived},
+			file => $enc->{enclosure_file},
+		);
+		my $size = -s $file;
+		$item->set('source@url', $enc->{feed_url});
+		$item->set('enclosure@url', CONFIG->{web}{feedurlbase} . File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
+		$item->set('enclosure@length', $size);
+		$item->set('enclosure@type', $mime) if defined $mime;
+	}
+
+	write_file(CONFIG->{storage}{playlists} . '/feed.xml', $feed->to_string);
+	INFO("Exported feed");
+}
+
 sub notaint {
 	defined $_[0] or return undef;
 	$_[0] =~ /^(.+)$/s;
@@ -1242,6 +1299,10 @@ DataDir $confdir # e.g., \$HOME/.podist
 	ArchivedMedia     \$HOME/Podist/archived/media
 	RandomMedia       \$HOME/Podist/playlists/random
 </storage>
+
+<web>
+    FeedURLBase   http://yourserver/podist/
+</web>
 
 <article>
 	# Note this is after basic title whitespace normalization.
@@ -1603,6 +1664,12 @@ database.
 Currently, the only effect on Podist operation is that archived
 playlists are not included in the generated feed (feed.xml in the
 playlist directory).
+
+=head2 B<feed>
+
+Generates an RSS feed from the non-archived playlists. The feed will be
+in the same order as the playlists (so consuming podcatchers should be
+instructed to use it in order).
 
 =head2 B<status>
 
