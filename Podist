@@ -1153,10 +1153,17 @@ sub feed {
 			$enc->{playlist_no}, $enc->{playlist_so},
 			($enc->{article_title} // $enc->{enclosure_file}),
 			$enc->{feed_name});
-		my $item = $feed->add_item(
-			title   => $title,
-			pubDate => $enc->{article_when},
-		);
+		my @item_extra;
+		if (CONFIG->{feed}{fudgedates}) {
+			@item_extra = (
+				pubDate     => $enc->{playlist_no} * 1000 + $enc->{playlist_so},
+				description => q{From }
+					. strftime('%F %H:%M:%S %Z', localtime $enc->{article_when}) . q{.}
+			);
+		} else {
+			@item_extra = (pubDate => $enc->{article_when});
+		}
+		my $item = $feed->add_item(title => $title, @item_extra);
 		$item->guid("podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no}, 'false');
 		my $mime;
 		$enc->{enclosure_file} =~ /\.(\S{3})$/
@@ -1168,7 +1175,7 @@ sub feed {
 		);
 		my $size = -s $file;
 		$item->set('source@url', $enc->{feed_url});
-		$item->set('enclosure@url', CONFIG->{web}{feedurlbase} . File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
+		$item->set('enclosure@url', CONFIG->{feed}{baseurl} . File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
 		$item->set('enclosure@length', $size);
 		$item->set('enclosure@type', $mime) if defined $mime;
 	}
@@ -1300,9 +1307,10 @@ DataDir $confdir # e.g., \$HOME/.podist
 	RandomMedia       \$HOME/Podist/playlists/random
 </storage>
 
-<web>
-    FeedURLBase   http://yourserver/podist/
-</web>
+<feed>
+    BaseURL      http://yourserver/podist/
+    FudgeDates   no
+</feed>
 
 <article>
 	# Note this is after basic title whitespace normalization.
