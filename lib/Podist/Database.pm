@@ -156,6 +156,14 @@ sub archive_playlist {
 	return;
 }
 
+sub vacuum {
+	my ($self) = @_;
+
+	$self->commit;
+	local $self->_dbh->{AutoCommit} = 1;
+	$self->do('VACUUM');
+}
+
 sub _build_uuid {
 	my ($self) = @_;
 	

@@ -630,6 +630,10 @@ QUERY
 	}
 
 	INFO("Moved $moved files to UnusableMedia");
+
+	INFO("Vacuuming database");
+	$DB->vacuum();
+	INFO("Database vacuumed.");
 }
 
 sub hasherize {
