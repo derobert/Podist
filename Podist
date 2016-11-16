@@ -297,9 +297,14 @@ QUERY
 			}
 
 			my $article_no;
-			if (defined(my $uid = $item->guid)) {
-				$article_no = $DB->find_article(uid => $uid);
-				TRACE("Checked for uid $uid in DB.");
+			my $article_uid = $item->guid;
+			if (defined $article_uid && '' eq $article_uid) {
+				TRACE("Ignoring blank guid");
+				$article_uid = undef;    # thank you Stack Overflow Blog.
+			}
+			if (defined $article_uid) {
+				$article_no = $DB->find_article(uid => $article_uid);
+				TRACE("Checked for uid $article_uid in DB.");
 			} else {
 				$article_no
 					= $DB->find_article(when => $date, title => $item_title);
@@ -320,7 +325,7 @@ QUERY
 				feed  => $feed_no,
 				fetch => $fetch_no,
 				use   => $article_use,
-				uid   => scalar($item->guid),
+				uid   => $article_uid,
 				title => $item_title,
 				when  => $date
 			);
