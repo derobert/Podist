@@ -298,6 +298,12 @@ QUERY
 
 			my $article_no;
 			my $article_uid = $item->guid;
+
+			# parser fails to perform XML whitespace normalization...
+			$article_uid =~ s/^\s+//;
+			$article_uid =~ s/\s+$//;
+			$article_uid =~ s/\s+/ /g;
+
 			if (defined $article_uid && '' eq $article_uid) {
 				TRACE("Ignoring blank guid");
 				$article_uid = undef;    # thank you Stack Overflow Blog.
