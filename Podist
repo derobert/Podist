@@ -265,6 +265,18 @@ QUERY
 			}
 
 			my $date = $item->get_pubDate_epoch;
+
+			# KLUGE: fails if the date has spaces; work around...
+			if (!$date && '' ne $item->get_pubDate_native) {
+				TRACE("Space-normalizing date");
+				$date = $item->get_pubDate_native;
+				$date =~ s/^\s+//;
+				$date =~ s/\s+$//;
+				$date =~ s/\s+/ /g;
+				$item->pubDate($date);
+				$date = $item->get_pubDate_epoch;
+			}
+
 			if (!$date) {
 				ERROR("@{[ $item->title ]}: get_pubDate_epoch failed");
 				if (defined $date_last2) {
