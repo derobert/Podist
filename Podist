@@ -31,6 +31,7 @@ use List::MoreUtils qw(pairwise);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
+use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
 use POSIX qw(strftime);
 use Text::ASCIITable;
@@ -52,6 +53,12 @@ my $DB;           # set by setup
 sub CONFIG();     # defined by setup
 sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
+
+# Average year on the Gregorian calendar (in seconds), ignoring leap
+# seconds (that is, presuming each day is 86,400 seconds long). This is
+# 365.2425 days. Note the quoted string because this gets direct-plopped
+# into SQL, and SQLite needs the .0 to do float math.
+my $AVERAGE_YEAR = '31556952.0';
 
 my %SUFFIX_MAP = (
 	'audio/mpeg'        => 'mp3',    # RFC 3003
@@ -486,7 +493,7 @@ SELECT
     SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END) AS cnt,
     CASE SUM(CASE WHEN e.playlist_no IS NULL THEN 1 ELSE 0 END)
       WHEN 0 THEN ''
-      ELSE PRINTF('%0.2f', (STRFTIME('%s', 'now') - MIN(CASE WHEN e.playlist_no IS NULL THEN a.article_when ELSE null END))/31556952.0)
+      ELSE PRINTF('%0.2f', (STRFTIME('%s', 'now') - MIN(CASE WHEN e.playlist_no IS NULL THEN a.article_when ELSE null END))/$AVERAGE_YEAR)
     END
   FROM
     feeds f
@@ -502,6 +509,52 @@ SELECT
   ORDER BY CASE cnt WHEN 0 THEN 1 ELSE 0 END, LOWER(feed_name)
 QUERY
 	print $tab, "\n";
+
+	$tab = Text::ASCIITable->new({
+			outputWidth => 72,
+			headingText => 'Overall Summary by Playlisted Status'
+	});
+	$tab->setCols('Playlisted?', 'Casts', 'Hours', 'Days', 'Years', 'Oldest');
+	my $summaries = $DB->selectall_arrayref(<<QUERY);
+SELECT
+    CASE WHEN e.playlist_no IS NULL THEN 'Pending' ELSE 'Already' END,
+    COUNT(e.enclosure_no),
+    SUM(e.enclosure_time),
+    MIN(a.article_when)
+  FROM
+    articles a
+    JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
+    JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
+  WHERE
+    e.enclosure_use = 1 AND a.article_use = 1
+  GROUP BY CASE WHEN e.playlist_no IS NULL THEN 0 ELSE 1 END
+  ORDER BY 1 ASC
+QUERY
+	my @total = ('TOTAL');
+	my $sum_add_row = sub {
+		my $summary = shift;
+		$tab->addRow(
+			$summary->[0],
+			format_number($summary->[1],                 0, 0),
+			format_number($summary->[2] / 3600,          0, 0),
+			format_number($summary->[2] / 86400,         1, 1),
+			format_number($summary->[2] / $AVERAGE_YEAR, 2, 1),
+			defined $summary->[3]
+				? strftime('%Y-%m-%d %H:%M:%S %Z', localtime $summary->[3])
+				: ''
+		);
+	};
+	foreach my $summary (@$summaries) {
+		$sum_add_row->($summary);
+		# col 0 is name, final is timestamp: ignore both.
+		for (my $i = 1; $i < $#$summary; ++$i) {
+			$total[$i] += $summary->[$i];
+		}
+	}
+	$tab->addRowLine;
+	$sum_add_row->(\@total);
+	print $tab, "\n";
+	$sum_add_row = undef;
 
 	$tab = Text::ASCIITable->new({
 			outputWidth => 72,
@@ -559,7 +612,7 @@ SELECT
     f.feed_enabled DESC, "4ever" DESC
 QUERY
 	$sth->execute;
-	my @total = (0)x($sth->{NUM_OF_FIELDS}-2);
+	@total = (0)x($sth->{NUM_OF_FIELDS}-2);
 	while (my (undef, $n, @times) = $sth->fetchrow_array) {
 		pairwise { our ($a, $b); $a += ($b // 0) } @total, @times;
 		$tab->addRow($n, map format_perday($_), @times);
