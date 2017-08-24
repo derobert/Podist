@@ -141,6 +141,8 @@ sub register_commands {
 			status    => \&status,
 			list      => \&list,
 		    cleanup   => \&cleanup,
+
+		    fsck      => \&fsck,
 		};
 	};
 	TRACE("Commands registered");
@@ -672,10 +674,39 @@ sub find_file {
 	return (-e $full_name) ? $full_name : undef;
 }
 
+sub fsck {
+	# TODO: check for presence of expected files
+	my $problems = 0;
+	
+	TRACE('Looking for orphaned enclosures.');
+	my $sth = $DB->prepare(<<QUERY);
+SELECT e.enclosure_no, e.enclosure_url
+  FROM enclosures e
+  WHERE
+    e.enclosure_use = 1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM articles_enclosures ae
+      WHERE ae.enclosure_no = e.enclosure_no
+    )
+QUERY
+	$sth->execute;
+	while (my ($eno, $eurl) = $sth->fetchrow_array) {
+		++$problems;
+		ERROR("Enclosure number $eno downloaded from $eurl is orphaned.");
+	}
+	$sth->finish;
+
+	INFO("Number of problems found during fsck: $problems.");
+	return !$problems;
+}
+
 sub cleanup {
 	# TODO: enclosure table really ought to explicitly store where the
 	#       file is currently located: pending, unusable, playlist.
 	
+	fsck() || LOGDIE("fsck found problems - aborting cleanup");
+
 	hasherize(); # make sure we have the hash before moving the file
 
 	my $sth = $DB->prepare(<<QUERY);
