@@ -35,6 +35,7 @@ use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
 use POSIX qw(strftime);
 use Text::ASCIITable;
+use Text::CSV;
 use XML::FeedPP;
 use Carp qw(longmess);
 
@@ -139,6 +140,8 @@ sub register_commands {
 			feed      => \&feed,
 
 			status    => \&status,
+			history   => \&history,
+
 			list      => \&list,
 		    cleanup   => \&cleanup,
 
@@ -619,6 +622,39 @@ QUERY
 	$tab->addRow('TOTAL', map format_perday($_), @total);
 	$tab->addRow('', map sprintf("%im", $_*60), @total);
 	print $tab;
+}
+
+sub history {
+	local $_;
+	my $csv = Text::CSV->new({
+			always_quote => 0,
+			quote_space  => 0,
+			auto_diag    => 2,
+			eol          => $/,
+		}) or LOGCONFESS("New Text::CSV failed.");
+
+	my $sth = $DB->prepare(<<QUERY);
+SELECT
+    DATETIME(times.t, 'unixepoch') AS When_UTC,
+    COUNT(DISTINCT ue.enclosure_no) AS N_tot,
+    SUM(CASE WHEN p.playlist_ctime <= times.t
+        THEN 0 ELSE 1 END) AS N_unpl,
+    SUM(ue.enclosure_time) AS T_tot,
+    SUM(CASE WHEN p.playlist_ctime <= times.t
+        THEN 0 ELSE ue.enclosure_time END) AS T_unpl
+  FROM
+    (SELECT DISTINCT playlist_ctime AS t FROM playlists) AS times
+    INNER JOIN usable_enclosures ue
+    LEFT JOIN playlists p ON (ue.playlist_no = p.playlist_no)
+  WHERE ue.earliest_article_when <= times.t
+  GROUP BY times.t
+  ORDER BY times.t
+QUERY
+	TRACE("Running (long) history query.");
+	$csv->print(\*STDOUT, $sth->{NAME});
+	$sth->execute;
+	$csv->print(\*STDOUT, $_) while defined ($_ = $sth->fetchrow_arrayref);
+	$sth->finish;
 }
 
 sub list {
@@ -1789,6 +1825,26 @@ instructed to use it in order).
 =head2 B<status>
 
 Shows a summary of what's in the database.
+
+=head2 B<history>
+
+Generates a history of how many episodes were present, how many were
+unplayed, the total time, and the unplayed time at the time each
+playlist was generated. Writes the result to STDOUT in CSV format.
+
+Note: the database only stores the article publication date, not the
+date each enclosure was added to the database. So that's what we use to
+generate the history. In particular, you won't see big jumps from adding
+a new podcast with a huge backlog--instead, the episodes will be spread
+out based on when they were published. Essentially, this is what history
+would have looked like had you always been subscribed to all your
+podcasts.
+
+Nitpick: The enclosure_use and article_use flags in the database don't
+have timestamps at all. The current values are presumed to apply for all
+time. So you won't see big drops if, e.g., you marked a bunch of
+enclosures enclosure_use=0 in the database. Note any automatic don't-use
+marking by Podist is done during "catch" so is actually for all time.
 
 =head2 B<list> I<options>
 
