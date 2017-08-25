@@ -214,7 +214,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 5;
+	my $current_vers = 6;
 
 	# Versions:
 	# 0 - no db yet
@@ -223,6 +223,7 @@ sub _get_migrations {
 	# 3 - per-fed, per-time limit; db logs fetches
 	# 4 - adds playlist archival
 	# 5 - podist_instance (UUID); add some indexes (performance)
+	# 6 - usable enclosure view
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -439,8 +440,23 @@ SQL
 	
 	}
 
+	if ($db_vers < 6) {
+		push @sql, <<SQL;
+CREATE VIEW usable_enclosures AS
+  SELECT e.*,
+         MIN(a.article_no) AS min_article_no,
+         MIN(a.article_when) AS earliest_article_when
+    FROM enclosures e
+    JOIN articles_enclosures ae ON (e.enclosure_no = ae.enclosure_no)
+    JOIN articles a ON (ae.article_no = a.article_no)
+   WHERE e.enclosure_use = 1
+   GROUP BY e.enclosure_no
+  HAVING MAX(a.article_use) >= 1
+SQL
+	}
+
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 5};
+	push @sql, q{PRAGMA user_version = 6};
 
 	return \@sql;
 }

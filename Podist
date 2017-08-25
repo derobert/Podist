@@ -519,17 +519,13 @@ QUERY
 	$tab->setCols('Playlisted?', 'Casts', 'Hours', 'Days', 'Years', 'Oldest');
 	my $summaries = $DB->selectall_arrayref(<<QUERY);
 SELECT
-    CASE WHEN e.playlist_no IS NULL THEN 'Pending' ELSE 'Already' END,
-    COUNT(e.enclosure_no),
-    SUM(e.enclosure_time),
-    MIN(a.article_when)
+    CASE WHEN playlist_no IS NULL THEN 'Pending' ELSE 'Already' END,
+    COUNT(enclosure_no),
+    SUM(enclosure_time),
+    MIN(earliest_article_when)
   FROM
-    articles a
-    JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
-    JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
-  WHERE
-    e.enclosure_use = 1 AND a.article_use = 1
-  GROUP BY CASE WHEN e.playlist_no IS NULL THEN 0 ELSE 1 END
+    usable_enclosures
+  GROUP BY CASE WHEN playlist_no IS NULL THEN 0 ELSE 1 END
   ORDER BY 1 ASC
 QUERY
 	my @total = ('TOTAL');
