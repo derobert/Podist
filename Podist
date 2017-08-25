@@ -1832,6 +1832,9 @@ Generates a history of how many episodes were present, how many were
 unplayed, the total time, and the unplayed time at the time each
 playlist was generated. Writes the result to STDOUT in CSV format.
 
+Warning: This query makes the database work. It will peg the CPU for a
+few seconds.
+
 Note: the database only stores the article publication date, not the
 date each enclosure was added to the database. So that's what we use to
 generate the history. In particular, you won't see big jumps from adding
@@ -1857,6 +1860,16 @@ Shows various things from the database.
 List the feeds in the database, both enabled and disabled.
 
 =back
+
+=head2 B<fsck>
+
+Do various consistency checks. So far, looks for enclosures that are (a)
+supposed to be used and (b) are not associated with an article
+("orphaned"). This is a problem because without an article, they can't
+be used.
+
+Eventually, this will be extended to do thorough checks, including
+checking for missing downloaded files and maybe even confirming hashes.
 
 =head2 B<cleanup>
 
