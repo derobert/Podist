@@ -1,0 +1,42 @@
+#!/bin/bash
+set -e -o pipefail
+shopt -s extglob
+
+target=i=-24:tp=-2:lra=20:dual_mono=true
+
+ffshutup=(-nostdin -hide_banner -nostats -loglevel info)
+
+smso=$(tput smso)
+rmso=$(tput rmso)
+
+for fin in random.in/*; do
+	fshort="${fin#random.in/}"
+	fshort="${fshort%.????(?)}"
+	fout="random/$fshort.opus"
+
+	if [ -f "$fout" ] && ! [ "$fout" -nt "$fin" ] && ! [ "$fout" -ot "$fin" ]; then
+		continue
+	fi
+
+	echo "Processing $fshort:" >&2
+
+	# the following is vomit-worthy. Thank you, ffmpeg.
+	IFS=' ' read -u 9 -r I TP LRA THRESH 9< <( 
+		ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a loudnorm=$target:print_format=json -f null - \
+			|& grep '^{$' -A99 \
+			| jq -r '.input_i, .input_tp, .input_lra, .input_thresh' \
+			| tr '\n' ' '
+		echo
+	)
+	echo "   I=$I TP=$TP LRA=$LRA THRESH=$THRESH" >&2
+
+	# still have to grep this because fuck you ffmpeg
+	ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a loudnorm=$target:linear=true:print_format=summary:measured_i=$I:measured_lra=$LRA:measured_tp=$TP:measured_thresh=$THRESH -c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout" \
+		|& grep -E '^(Output (Integrated|True Peak|LRA|Threshold)|Normalization Type|Target Offset)' \
+		| sed -e "s/Dynamic/${smso}Dynamic${rmso}/; s/^/   /" \
+		>&2
+	
+	touch -m -r "$fin" "$fout"
+	
+	echo -e "done.\n" >&2
+done
