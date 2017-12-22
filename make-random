@@ -2,7 +2,8 @@
 set -e -o pipefail
 shopt -s extglob
 
-target=i=-24:tp=-2:lra=20:dual_mono=true
+target_LUFS=-24
+target=i=$target_LUFS:tp=-2:lra=20:dual_mono=true
 
 ffshutup=(-nostdin -hide_banner -nostats -loglevel info)
 
@@ -30,11 +31,29 @@ for fin in random.in/*; do
 	)
 	echo "   I=$I TP=$TP LRA=$LRA THRESH=$THRESH" >&2
 
-	# still have to grep this because fuck you ffmpeg
-	ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a loudnorm=$target:linear=true:print_format=summary:measured_i=$I:measured_lra=$LRA:measured_tp=$TP:measured_thresh=$THRESH -c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout" \
-		|& grep -E '^(Output (Integrated|True Peak|LRA|Threshold)|Normalization Type|Target Offset)' \
-		| sed -e "s/Dynamic/${smso}Dynamic${rmso}/; s/^/   /" \
-		>&2
+	# now, decide if we're going to use loudnorm or volume to apply the
+	# change. This is a workaround due to a stupid limitation in
+	# loudnorm (LRA is limited to 20). Because all music must be
+	# overcompressed pop!
+	#
+	# If we're amplifying, presume we need loudnorm to avoid clipping.
+	# Otherwise, use volume. And so we get to compare decimals in bash,
+	# always a fun thing!
+	if echo "$I $target_LUFS" | awk '{ exit !($1 < $2) }'; then
+		# still have to grep this because fuck you ffmpeg
+		filter="loudnorm=$target:linear=true:print_format=summary:measured_i=$I:measured_lra=$LRA:measured_tp=$TP:measured_thresh=$THRESH"
+		ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a "$filter" -c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout" \
+			|& grep -E '^(Output (Integrated|True Peak|LRA|Threshold)|Normalization Type|Target Offset)' \
+			| sed -e "s/Dynamic/${smso}Dynamic${rmso}/; s/^/   /" \
+			>&2
+	else
+		adjust="$(echo "$I $target_LUFS" | awk '{ print($2 - $1) }')"
+		echo "   Adjusting $adjust dB." >&2
+		filter="volume=replaygain=drop:volume=${adjust}dB"
+		ffmpeg "${ffshutup[@]}" -loglevel error -i "$fin" -filter:a "$filter" \
+			-c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout"
+	fi
+
 	
 	touch -m -r "$fin" "$fout"
 	
