@@ -214,7 +214,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 6;
+	my $current_vers = 7;
 
 	# Versions:
 	# 0 - no db yet
@@ -224,6 +224,7 @@ sub _get_migrations {
 	# 4 - adds playlist archival
 	# 5 - podist_instance (UUID); add some indexes (performance)
 	# 6 - usable enclosure view
+	# 7 - store random music selections in db
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -455,8 +456,27 @@ CREATE VIEW usable_enclosures AS
 SQL
 	}
 
+	if ($db_vers < 7) {
+		push @sql, <<SQL;
+CREATE TABLE randoms (
+  random_no        INTEGER   NOT NULL PRIMARY KEY,
+  random_file      TEXT      NOT NULL UNIQUE,
+  random_weight    INTEGER   NOT NULL DEFAULT 1000, -- set to 0 to disable
+  CONSTRAINT random_weight_is_non_negative CHECK (random_weight >= 0)
+)
+SQL
+		push @sql, <<SQL;
+CREATE TABLE random_uses (
+  random_no        INTEGER   NOT NULL REFERENCES randoms,
+  playlist_no      INTEGER   NOT NULL REFERENCES playlists,
+  playlist_so      INTEGER   NOT NULL,
+  UNIQUE(playlist_no, playlist_so)
+)
+SQL
+	}
+
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 6};
+	push @sql, q{PRAGMA user_version = 7};
 
 	return \@sql;
 }
