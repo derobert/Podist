@@ -2,6 +2,7 @@ package Podist::Database;
 use feature 'state';
 use Carp;
 use DBI;
+use File::Spec qw();
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use UUID;
 use Moose;
@@ -120,26 +121,30 @@ sub find_or_add_random {
 	my ($self, $file) = @_;
 
 	my $sth = $self->prepare_cached(q{
-		SELECT random_no, random_weight FROM randoms
+		SELECT random_no, random_weight, random_name FROM randoms
 		 WHERE random_file = ?
 	});
 
-	my ($number, $weight);
+	my ($number, $weight, $name);
 	$sth->execute($file);
-	if (($number, $weight) = $sth->fetchrow_array) {
+	if (($number, $weight, $name) = $sth->fetchrow_array) {
 		$sth->finish; # should only be one row, but just in case
 	} else {
-		# not found, add it. Rare, so no need to cache sth.
-		INFO("Adding new random item $file to database");
+		# not found, add it. Rare, so no need to cache sth here. Build
+		# user presentable name from file name (should do tags someday).
+
+		(undef, undef, $name) = File::Spec->splitpath($file);
+		$name =~ s/\..{1,4}$//;
+
+		INFO("Adding new random item $file to DB with name $name");
 		my $sth = $self->prepare(q{
-			INSERT INTO randoms(random_file) VALUES (?)
+			INSERT INTO randoms(random_file, random_name) VALUES (?, ?)
 		});
-		$sth->execute($file);
+		$sth->execute($file, $name);
 		$number = $self->last_insert_id('', '', 'randoms', 'random_no')
 			or confess "Failed to get a random_no back from DB";
 		DEBUG("New random is number $number");
 
-		# load weight from DB. Again rare (exactly same as add, hopefully).
 		($weight) = $self->selectrow_array(
 			q{SELECT random_weight FROM randoms WHERE random_no = ?},
 			{}, $number
@@ -499,6 +504,7 @@ SQL
 CREATE TABLE randoms (
   random_no        INTEGER   NOT NULL PRIMARY KEY,
   random_file      TEXT      NOT NULL UNIQUE,
+  random_name      TEXT      NOT NULL,
   random_weight    INTEGER   NOT NULL DEFAULT 1000, -- set to 0 to disable
   CONSTRAINT random_weight_is_non_negative CHECK (random_weight >= 0)
 )
