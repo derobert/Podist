@@ -34,6 +34,7 @@ use MP3::Info qw(get_mp3info);
 use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
 use POSIX qw(strftime);
+use Term::Size::Any qw(!:DEFAULT);    # need to call ->import w/o polution
 use Text::ASCIITable;
 use Text::CSV;
 use XML::FeedPP;
@@ -51,6 +52,8 @@ use feature 'say';
 use strict;
 
 my $DB;           # set by setup
+my $TERM_COLS;    # set by setup
+my $TERM_LINES;   # set by setup
 sub CONFIG();     # defined by setup
 sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
@@ -685,10 +688,14 @@ QUERY
 	if ($opts{randoms}) {
 		my $randoms = find_random_items();
 		my $tab = Text::ASCIITable->new({
-				outputWidth => 72,
+				outputWidth => $TERM_COLS,
 				headingText => 'Random Items'
 		});
-		$tab->setCols('File', 'DB', 'Weight', 'As %');
+		$tab->setCols('DB', 'File', 'Name', 'Weight', 'As %');
+		my $longwidth = int(($TERM_COLS-32) / 2);
+		$longwidth = 20 if $longwidth < 20;
+		$tab->setColWidth('File', $longwidth);
+		$tab->setColWidth('Name', $longwidth);
 		foreach my $random (
 			sort({ $::a->{random_file} cmp $::b->{random_file} }
 				@{$randoms->{randoms}}),
@@ -696,8 +703,9 @@ QUERY
 				@{$randoms->{disabled}}))
 		{
 			$tab->addRow(
-				$random->{random_file},
 				$random->{random_no},
+				$random->{random_file},
+				$random->{random_name},
 				$random->{random_weight},
 				sprintf('%.3f',
 					100 * $random->{random_weight} / $randoms->{total_weight}));
@@ -1496,6 +1504,24 @@ sub setup {
 	*CONFIG = sub() { $config };
 
 	init_logging();
+
+	# get terminal width
+	$TERM_COLS  = 0 + notaint($ENV{COLUMNS} // 0);
+	$TERM_LINES = 0 + notaint($ENV{LINES}   // 0);
+	if (0 == $TERM_COLS || 0 == $TERM_LINES) {
+		TRACE("Getting terminal size via Term::Size::Any");
+		my ($c, $l) = Term::Size::Any::chars(*STDOUT);
+		$TERM_COLS  ||= $c // 0;
+		$TERM_LINES ||= $l // 0;
+	}
+	if (0 == $TERM_COLS || 0 == $TERM_LINES) {
+		WARN(
+			"Failed to get terminal size (got ${TERM_COLS}x${TERM_LINES}); defaulting 0s to 80x24."
+		);
+		$TERM_COLS  ||= 80;
+		$TERM_LINES ||= 24;
+	}
+	TRACE("Terminal size: ${TERM_COLS}x${TERM_LINES}.");
 
 	if (CONFIG->{notyetconfigured}) {
 		FATAL(<<ERR);

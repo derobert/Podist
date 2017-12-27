@@ -152,8 +152,9 @@ sub find_or_add_random {
 	}
 
 	return {
-		random_no => $number,
-		random_file => $file,
+		random_no     => $number,
+		random_file   => $file,
+		random_name   => $name,
 		random_weight => $weight,
 	};
 
