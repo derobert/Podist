@@ -116,6 +116,44 @@ sub link_article_enclosure {
 	return;
 }
 
+sub find_or_add_random {
+	my ($self, $file) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		SELECT random_no, random_weight FROM randoms
+		 WHERE random_file = ?
+	});
+
+	my ($number, $weight);
+	$sth->execute($file);
+	if (($number, $weight) = $sth->fetchrow_array) {
+		$sth->finish; # should only be one row, but just in case
+	} else {
+		# not found, add it. Rare, so no need to cache sth.
+		INFO("Adding new random item $file to database");
+		my $sth = $self->prepare(q{
+			INSERT INTO randoms(random_file) VALUES (?)
+		});
+		$sth->execute($file);
+		$number = $self->last_insert_id('', '', 'randoms', 'random_no')
+			or confess "Failed to get a random_no back from DB";
+		DEBUG("New random is number $number");
+
+		# load weight from DB. Again rare (exactly same as add, hopefully).
+		($weight) = $self->selectrow_array(
+			q{SELECT random_weight FROM randoms WHERE random_no = ?},
+			{}, $number
+		) or confess "Could not find freshly-inserted random $number";
+	}
+
+	return {
+		random_no => $number,
+		random_file => $file,
+		random_weight => $weight,
+	};
+
+}
+
 sub add_fetch {
 	my ($self, $feed_no) = @_;
 

@@ -662,7 +662,7 @@ sub list {
 		config => [qw( gnu_compat require_order )]);
 
 	my %opts;
-	$go->getoptions(\%opts, qw(feeds|f) ) or pod2usage(2);
+	$go->getoptions(\%opts, qw(feeds|f randoms|r) ) or pod2usage(2);
 	keys %opts or pod2usage("Need to specify something to list.");
 	
 	if ($opts{feeds}) {
@@ -679,6 +679,27 @@ SELECT
   FROM feeds
   ORDER BY feed_enabled DESC, feed_name ASC
 QUERY
+		say $tab;
+	}
+
+	if ($opts{randoms}) {
+		my $randoms = find_random_items();
+		my $tab = Text::ASCIITable->new({
+				outputWidth => 72,
+				headingText => 'Random Items'
+		});
+		$tab->setCols('File', 'DB', 'Weight', 'As %');
+		foreach my $random (sort { $::a->{random_file} cmp $::b->{random_file} }
+			@{$randoms->{randoms}})
+		{
+			$tab->addRow(
+				$random->{random_file},
+				$random->{random_no},
+				$random->{random_weight},
+				sprintf('%.3f',
+					100 * $random->{random_weight} / $randoms->{total_weight}));
+		}
+
 		say $tab;
 	}
 }
@@ -909,7 +930,7 @@ sub playlist {
 		or LOGDIE("Could not create playlist media directory $plist_dir: $!");
 	TRACE("Using playlist dir $plist_dir");
 
-	my @randoms = find_random_items();
+	my $randoms = find_random_items();
 	my @playlist = ();
 	my @bans;
 	my $duration = 0;
@@ -923,16 +944,21 @@ sub playlist {
 	my $random_mode = lc(CONFIG->{playlist}{randomchancemode});
 
 	if (CONFIG->{playlist}{announcebegin}) {
-		push @playlist, announce(begin => $plist_dir, {
+		push @playlist, [announce(begin => $plist_dir, {
 			current => $p_no,
 			next => 1+$p_no,
-		});
+		}), 0];
 	}
 
 	my $mark = $DB->prepare(<<QUERY);
 UPDATE enclosures
   SET playlist_no = ?, playlist_so = ?
   WHERE enclosure_no = ?
+QUERY
+
+	my $noterandom = $DB->prepare(<<QUERY);
+INSERT INTO random_uses(random_no, playlist_no, playlist_so)
+  VALUES (?, ?, ?)
 QUERY
 
 	until ($duration >= CONFIG->{playlist}{targetduration}
@@ -978,7 +1004,7 @@ QUERY
 			or last;
 		DEBUG("Picked feed $feed_no, enc $enc_no, dur $enc_time");
 
-		push @playlist, $enc_file;
+		push @playlist, [$enc_file, 1];
 		$duration += $enc_time;
 
 		if ($feed_no == $last_feed) {
@@ -1005,8 +1031,14 @@ QUERY
 		my $chance = $x * $random_m + $random_b;
 		TRACE("Random chance = $chance");
 		if (rand() < $chance) {
-			my $item = get_one_random(\@randoms, $mark, $p_no, 1+@playlist);
-			DEBUG("Adding random item $item");
+			my $item = get_one_random(
+				randoms  => $randoms,
+				mark     => $mark,
+				note     => $noterandom,
+				playlist => $p_no,
+				position => (1 + @playlist),
+			);
+			DEBUG("Adding random item $item->[0]");
 			push @playlist, $item;
 
 			$since_rand_time = 0;
@@ -1030,32 +1062,35 @@ QUERY
 
 	if ((my $ll = CONFIG->{playlist}{leadoutlength}) > 0) {
 		if (CONFIG->{playlist}{announceleadout}) {
-			push @playlist, announce(leadout => $plist_dir, {
+			push @playlist, [announce(leadout => $plist_dir, {
 				current => $p_no,
 				next => 1+$p_no,
-			});
+			}), 0];
 		}
 
 		for (1..$ll) {
-			my $item = get_one_random(\@randoms);
-			DEBUG("Adding leadout item $item");
+			my $item = get_one_random(
+				randoms  => $randoms,
+			);
+			DEBUG("Adding leadout item $item->[0]");
 			push @playlist, $item;
 		}
 	}
 
 	if (CONFIG->{playlist}{announceend}) {
-		push @playlist, announce(end => $plist_dir, {
+		push @playlist, [announce(end => $plist_dir, {
 			current => $p_no,
 			next => 1+$p_no,
-		});
+		}), 0];
 	}
 
 	my $fname = get_playlist_path(playlist => $p_no);
 	DEBUG("Writing playlist $fname");
-	write_file($fname, map $_ =~ m!^/! ? "$_\n" : "$plist_dir/$_\n", @playlist);
+	write_file($fname, map $_->[1] ? "$plist_dir/$_->[0]\n" : "$_->[0]\n", @playlist);
 	TRACE("Moving files");
-	foreach my $f (@playlist) {
-		next if $f =~ m!^/!; # prob random item
+	foreach my $item (@playlist) {
+		next unless $item->[1]; # make sure move flag is set
+		my $f = $item->[0];
 		my $old = notaint(CONFIG->{storage}{pendingmedia}."/$f");
 		my $new = notaint("$plist_dir/$f");
 		
@@ -1103,21 +1138,65 @@ sub find_mediafile {
 }
 
 sub get_one_random {
-	my ($randoms, $mark, $p_no, $p_pos) = @_;
-	my $rmedia = $randoms->[int rand @$randoms];
+	# FIXME: Encapsulation violation. Possibly unexpected behavior
+	#        depending on if mark is passed. Refactor.
+	my %opts        = @_;
+	my $random_info = $opts{randoms}
+		or LOGCONFESS "Caller failed to pass randoms";
+	my $mark       = $opts{mark};
+	my $noterandom = $opts{note};
+	my $p_no       = $opts{playlist};
+	my $p_pos      = $opts{position};
 
-	return $rmedia if rand() >= CONFIG->{playlist}{randomfeedratio};
-	return $rmedia unless defined $mark;
-	return $rmedia
-		unless my ($enc_no, $enc_file) = $DB->selectrow_array(<<QUERY);
+	# First see if we can use a random item feed; if not, we fall back
+	# to RandomMedia.
+gor_try_feed: {
+		last gor_try_feed unless defined $mark;
+		last gor_try_feed if rand() >= CONFIG->{playlist}{randomfeedratio};
+		last gor_try_feed
+			unless my ($enc_no, $enc_file) = $DB->selectrow_array(<<QUERY);
 SELECT enclosure_no, enclosure_file
   FROM valids
   WHERE feed_is_music = 1
   ORDER BY random()
   LIMIT 1
 QUERY
-	$mark->execute($p_no, $p_pos, $enc_no);
-	return $enc_file;
+		$mark->execute($p_no, $p_pos, $enc_no);
+		return [$enc_file, 1];
+	}
+
+	# We've fallen back to RandomMedia. Pick a random weight less than
+	# the total, then find the item with a binary search.
+	my $target  = int rand($random_info->{total_weight});
+	my $randoms = $random_info->{randoms};
+	my ($low, $high) = (0, $#$randoms);
+
+	# lacking a better guess, let's start our search assuming equal
+	# weights. Or at least no bias towards one side of the array. This
+	# is a performance assumption, not correctness.
+	#
+	# XXX: We wind up with maximum probes when our initial guess is
+	#      off by one. Not a huge issue, but silly, especially since
+	#      that's the most common case!
+	my $i = int ($high * $target/$random_info->{total_weight});
+	while (1) {
+		TRACE("bin search: i=$i, low=$low, high=$high");
+		my $item = $randoms->[$i]
+			or LOGCONFESS("Binary search bug - no item");
+		if ($target > $item->{range_high}) {
+			$low = $i + 1;
+			$i = $low+int(($high-$low)/2);
+		} elsif ($target < $item->{range_low}) {
+			$high = $i - 1;
+			$i = $high-int(($high-$low)/2);
+		} else {
+			$noterandom->execute($item->{random_no}, $p_no, $p_pos) if $noterandom;
+			# TODO: Really shouldn't be hard-coding this...
+			return ['random/'.$item->{random_file}, 0];
+		}
+	}
+
+	LOGCONFESS("Unreachable code reached");
 }
 
 sub announce {
@@ -1215,19 +1294,41 @@ sub playlist_valid_where {
 }
 
 sub find_random_items {
-	my @files;
+	wantarray and LOGCONFESS("find_random_items no longer returns an array");
 
+	my $random_info = {
+		randoms      => [],
+		total_weight => 0,
+		# note that total_weight will be 1 more than the greatest
+		# range_high, but that's OK because 0 ≤ (rand X) < X
+	};
+
+	TRACE("Finding random items");
+	my $randommedia = notaint(CONFIG->{storage}{randommedia});
 	find({
 			wanted => sub {
 				-f -r $File::Find::fullname
-					and push @files, $File::Find::fullname;
+					or return;
+				(my $relname = $File::Find::name) =~ s!^\Q$randommedia/\E!!
+					or LOGCONFESS("Couldn't strip RandomMedia from $File::Find::name");
+				my $dat = $DB->find_or_add_random($relname);
+
+				# range_low and range_high are so we can do a binary
+				# search to find the right item. Strictly speaking, one
+				# or the other is superfluous.
+				$dat->{range_low} = $random_info->{total_weight};
+				$random_info->{total_weight} += $dat->{random_weight};
+				$dat->{range_high} = $random_info->{total_weight} - 1;
+				push @{$random_info->{randoms}}, $dat;
 			},
 			follow  => 1,
 			untaint => 1,
 		},
-		notaint(CONFIG->{storage}{randommedia}));
+		$randommedia);
 
-	return @files;
+	DEBUG('Found ', scalar(@{$random_info->{randoms}}), " random items with a total weight of $random_info->{total_weight}.");
+
+	return $random_info;
 }
 
 sub archive {
@@ -1858,6 +1959,12 @@ Shows various things from the database.
 =item B<--feeds> | B<-f>
 
 List the feeds in the database, both enabled and disabled.
+
+=item B<--randoms> | B<-r>
+
+List the random items found on the filesystem, along with their weight
+(from the database). Note that the also adds any new random items to the
+database.
 
 =back
 
