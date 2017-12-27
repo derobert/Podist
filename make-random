@@ -12,7 +12,7 @@ rmso=$(tput rmso)
 
 declare -A found_input
 
-for fin in random.in/*; do
+while IFS= read -r -d $'\0' -u 8 fin; do # fd 8 is "find" at end of loop; pipe would create subshell.
 	fshort="${fin#random.in/}"
 	fshort="${fshort%.????(?)}"
 	fout="random/$fshort.opus"
@@ -22,7 +22,14 @@ for fin in random.in/*; do
 		continue
 	fi
 
+
 	echo "Processing $fshort:" >&2
+
+	foutdir=$(dirname "$fout")
+	if [[ "$fout" == */* ]] && ! [ -d "$foutdir" ]; then
+		echo "   Creating subdir $foutdir." >&2;
+		mkdir -p "$foutdir"
+	fi
 
 	# the following is vomit-worthy. Thank you, ffmpeg.
 	IFS=' ' read -u 9 -r I TP LRA THRESH 9< <( 
@@ -61,14 +68,15 @@ for fin in random.in/*; do
 	touch -m -r "$fin" "$fout"
 	
 	echo -e "done.\n" >&2
-done
+done 8< <(find -L random.in -type f -print0)
 
 echo -n 'Cleaning non-matching opus files from random... ' >&2
 deleted=0
-for f in random/*.opus; do
+while IFS= read -r -d $'\0' -u 9 f; do
 	if ! [ y = "${found_input[$f]}" ]; then
 		let ++deleted
 		rm "$f"
 	fi
-done
+done 9< <(find random -name '*.opus' -type f -print0)
+find random -type d -empty -delete
 echo "$deleted removed." >&2
