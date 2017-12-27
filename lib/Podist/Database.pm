@@ -222,31 +222,49 @@ sub unarchived_playlist_info {
 	my ($self) = @_;
 
 	my $sth = $self->prepare_cached(<<SQL);
-   SELECT info.*
-        , a.article_title AS article_title
-        , a.article_when AS article_when
-        , f.feed_name AS feed_name
-        , f.feed_url AS feed_url
-     FROM ( SELECT e.enclosure_no
-                 , e.enclosure_file
-                 , e.enclosure_time
-                 , e.playlist_no
-                 , e.playlist_so
-                 , p.playlist_archived
-                 , (   SELECT a.article_no
-                         FROM articles_enclosures ae
-                         JOIN articles a ON (ae.article_no = a.article_no)
-                        WHERE ae.enclosure_no = e.enclosure_no
-                          AND a.article_use = 1
-                     ORDER BY CASE WHEN a.article_title IS NULL THEN 1 ELSE 0 END, a.article_no
-                        LIMIT 1
-                   ) AS first_article_no
-              FROM enclosures e
-              JOIN playlists p ON (e.playlist_no = p.playlist_no)
-             WHERE p.playlist_archived IS NULL
-          ) AS info
-LEFT JOIN articles a ON (info.first_article_no = a.article_no)
-LEFT JOIN feeds f ON (a.feed_no = f.feed_no)
+       SELECT 'enclosure' AS type
+            , info.*
+            , a.article_title AS article_title
+            , a.article_when AS article_when
+            , f.feed_name AS feed_name
+            , f.feed_url AS feed_url
+         FROM ( SELECT e.enclosure_no
+                     , e.enclosure_file
+                     , e.enclosure_time
+                     , e.playlist_no
+                     , e.playlist_so
+                     , p.playlist_archived
+                     , (   SELECT a.article_no
+                             FROM articles_enclosures ae
+                             JOIN articles a ON (ae.article_no = a.article_no)
+                            WHERE ae.enclosure_no = e.enclosure_no
+                              AND a.article_use = 1
+                         ORDER BY CASE WHEN a.article_title IS NULL THEN 1 ELSE 0 END, a.article_no
+                            LIMIT 1
+                       ) AS first_article_no
+                  FROM enclosures e
+                  JOIN playlists p ON (e.playlist_no = p.playlist_no)
+                 WHERE p.playlist_archived IS NULL
+              ) AS info
+    LEFT JOIN articles a ON (info.first_article_no = a.article_no)
+    LEFT JOIN feeds f ON (a.feed_no = f.feed_no)
+UNION ALL
+       SELECT 'randommedia' AS type
+            , ru.random_no
+            , r.random_file
+            , NULL AS random_time -- do not have or need...
+            , ru.playlist_no
+            , ru.playlist_so
+            , p.playlist_archived
+            , NULL AS first_article_no -- makes no sense
+            , r.random_name
+            , NULL AS article_when -- maybe someday read tags to get date
+            , 'Random Media' AS feed_name
+            , NULL AS feed_url
+         FROM random_uses ru
+         JOIN playlists p ON (ru.playlist_no = p.playlist_no)
+         JOIN randoms r ON (ru.random_no = r.random_no)
+         WHERE p.playlist_archived IS NULL
  ORDER BY playlist_no, playlist_so
 SQL
 	$sth->execute;

@@ -37,6 +37,7 @@ use POSIX qw(strftime);
 use Term::Size::Any qw(!:DEFAULT);    # need to call ->import w/o polution
 use Text::ASCIITable;
 use Text::CSV;
+use URI::Escape qw(uri_escape);
 use XML::FeedPP;
 use Carp qw(longmess);
 
@@ -76,8 +77,9 @@ my %SUFFIX_MAP = (
 	'application/x-ogg' => 'ogg',
 );
 my %MIME_MAP = (
-	mp3 => 'audio/mpeg',
-	ogg => 'audio/ogg',
+	mp3  => 'audio/mpeg',
+	ogg  => 'audio/ogg',
+	opus => 'audio/ogg; codecs=opus'
 );
 
 exit go();
@@ -1143,9 +1145,16 @@ sub find_mediafile {
 
 	$opts{playlist} // LOGDIE("TODO: find_mediafile for non-playlisted");
 	$opts{archived} //= 0;
+	$opts{type} //= 'enclosure';
 	$opts{file} // LOGDIE("find_mediafile not given file name");
 
-	get_playlist_mediapath(%opts) . '/' . $opts{file};
+	if ('enclosure' eq $opts{type}) {
+		return get_playlist_mediapath(%opts) . '/' . $opts{file};
+	} elsif ('randommedia' eq $opts{type}) {
+		return notaint(CONFIG->{storage}{playlistedmedia} . '/random/' . $opts{file});
+	} else {
+		LOGCONFESS("Uknown media file type: $opts{type}");
+	}
 }
 
 sub get_one_random {
@@ -1426,27 +1435,48 @@ sub feed {
 			$enc->{feed_name});
 		my @item_extra;
 		if (CONFIG->{feed}{fudgedates}) {
-			@item_extra = (
-				pubDate     => $enc->{playlist_no} * 1000 + $enc->{playlist_so},
+			@item_extra
+				= (pubDate => $enc->{playlist_no} * 1000 + $enc->{playlist_so});
+			push @item_extra,
 				description => q{From }
-					. strftime('%F %H:%M:%S %Z', localtime $enc->{article_when}) . q{.}
-			);
+				. strftime('%F %H:%M:%S %Z', localtime $enc->{article_when}) . q{.}
+				if defined $enc->{article_when};
 		} else {
-			@item_extra = (pubDate => $enc->{article_when});
+			@item_extra = (pubDate => $enc->{article_when})
+				if defined $enc->{article_when};
 		}
 		my $item = $feed->add_item(title => $title, @item_extra);
-		$item->guid("podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no}, 'false');
+		if ('enclosure' eq $enc->{type}) {
+			$item->guid(
+				"podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no},
+				'false');
+		} elsif ('randommedia' eq $enc->{type}) {
+			$item->guid(
+				"podist-"
+					. $DB->uuid
+					. "-randommedia-$enc->{enclosure_no}-$enc->{playlist_no}-$enc->{playlist_so}",
+				'false'
+			);
+		} else {
+			LOGCONFESS("Unknown item type: $enc->{type}.");
+		}
 		my $mime;
-		$enc->{enclosure_file} =~ /\.(\S{3})$/
+		$enc->{enclosure_file} =~ /\.(\S{3,4})$/
 			and $mime = $MIME_MAP{lc $1};
 		my $file = find_mediafile(
 			playlist => $enc->{playlist_no},
 			archived => defined $enc->{playlist_archived},
+			type => $enc->{type},
 			file => $enc->{enclosure_file},
 		);
 		my $size = -s $file;
-		$item->set('source@url', $enc->{feed_url});
-		$item->set('enclosure@url', CONFIG->{feed}{baseurl} . File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
+		$item->set('source@url', $enc->{feed_url}) if defined $enc->{feed_url};
+		my $urlextra
+			= ($enc->{type} eq 'randommedia')
+			? "?$enc->{playlist_no}-$enc->{playlist_so}"
+			: q{};
+		my $urlpath = join('/', map(uri_escape($_), split('/', File::Spec->abs2rel($file, CONFIG->{storage}{playlists}))));
+		$item->set('enclosure@url', CONFIG->{feed}{baseurl} . $urlpath . $urlextra );
 		$item->set('enclosure@length', $size);
 		$item->set('enclosure@type', $mime) if defined $mime;
 	}
