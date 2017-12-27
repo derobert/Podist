@@ -689,8 +689,11 @@ QUERY
 				headingText => 'Random Items'
 		});
 		$tab->setCols('File', 'DB', 'Weight', 'As %');
-		foreach my $random (sort { $::a->{random_file} cmp $::b->{random_file} }
-			@{$randoms->{randoms}})
+		foreach my $random (
+			sort({ $::a->{random_file} cmp $::b->{random_file} }
+				@{$randoms->{randoms}}),
+			sort({ $::a->{random_file} cmp $::b->{random_file} }
+				@{$randoms->{disabled}}))
 		{
 			$tab->addRow(
 				$random->{random_file},
@@ -1298,6 +1301,7 @@ sub find_random_items {
 
 	my $random_info = {
 		randoms      => [],
+		disabled     => [],
 		total_weight => 0,
 		# note that total_weight will be 1 more than the greatest
 		# range_high, but that's OK because 0 ≤ (rand X) < X
@@ -1316,17 +1320,32 @@ sub find_random_items {
 				# range_low and range_high are so we can do a binary
 				# search to find the right item. Strictly speaking, one
 				# or the other is superfluous.
-				$dat->{range_low} = $random_info->{total_weight};
-				$random_info->{total_weight} += $dat->{random_weight};
-				$dat->{range_high} = $random_info->{total_weight} - 1;
-				push @{$random_info->{randoms}}, $dat;
+				#
+				# We skip weight-0 items because they'd otherwise wind
+				# up with a weird range_high < range_low. Maybe that'd
+				# work, but easier to just prohibit it. Put them in
+				# disabled instead so they can still be listed.
+				#
+				# Note the DB has a constraint to force ≥ 0. So
+				# negative should never happen, but consider it disabled
+				# just in case.
+				if ($dat->{random_weight} > 0) {
+					$dat->{range_low} = $random_info->{total_weight};
+					$random_info->{total_weight} += $dat->{random_weight};
+					$dat->{range_high} = $random_info->{total_weight} - 1;
+					push @{$random_info->{randoms}}, $dat;
+				} else {
+					push @{$random_info->{disabled}}, $dat;
+				}
 			},
 			follow  => 1,
 			untaint => 1,
 		},
 		$randommedia);
 
-	DEBUG('Found ', scalar(@{$random_info->{randoms}}), " random items with a total weight of $random_info->{total_weight}.");
+	DEBUG('Found ', scalar(@{$random_info->{randoms}}),
+	      ' (+', scalar(@{$random_info->{disabled}}),
+	      " disabled) random items, total weight $random_info->{total_weight}.");
 
 	return $random_info;
 }
