@@ -1,0 +1,70 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+RANDOM_IN_DIR=~/Podist/random.in
+
+if [ $# -ne 1 -a $# -ne 2 ]; then
+	cat >&2 <<'USAGE'
+Usage: add-podist-random file.flac ['Install Name']
+
+If an install name is not specified, you will be prompted for one. A
+semi-sane default might be provided, at least for FLAC files. This can
+be useful to avoid having to shell escape it.
+
+The file extension will automatically be added to the instal name.
+
+Example:
+   add-podist-random 11*.flac "Classical/Felix Mendelssohn - A Midsummer Night's Dream - 11. Fanfare and Funeral March"
+USAGE
+	exit 1
+fi
+
+target=$1
+name=$2
+
+if ! [ -r "$target" ]; then
+	echo "File $target is not readable. Abort." >&2
+	exit 2
+fi
+
+if [ -z "$name" ]; then
+	declare -A tags
+	while IFS='=' read -r -u 9 k v; do
+		tags["${k,,}"]="$v" # ,, = lowercase
+	done 9< <(metaflac --show-tag=Title      --show-tag=Album        \
+					   --show-tag=Artist     --show-tag=DiscNumber   \
+	                   --show-tag=DiscTotal  --show-tag=TrackNumber  \
+	                   --show-tag=TrackTotal                         \
+	                   "$target" \
+	              | recode -f utf8..ascii )
+	default="${tags[artist]} - ${tags[album]} - "
+	if [ "${tags[disctotal]}" -ge 10 ]; then
+		default+=$(printf '%02i-' "${tags[discnumber]}")
+	elif [ "${tags[disctotal]}" -ge 2 ]; then
+		default+=$(printf '%i-' "${tags[discnumber]}")
+	fi
+	if [ "${tags[tracktotal]}" -ge 10 ]; then
+		default+=$(printf '%02i. ' "${tags[tracknumber]}")
+	else
+		default+=$(printf '%i. ' "${tags[tracknumber]}")
+	fi
+	default+="${tags[title]}"
+	IFS= read -p "Install name: " -e -i "$default" -r name
+fi
+
+targetfull=$(realpath -s "$target")
+extension=$(echo -- "$target" | rev | cut -d. -f1 | rev)
+if [ -z "$extension" ]; then
+	echo "Found no extension... uh oh. Stop." >&2
+	exit 3
+fi
+if [ ${#extension} -gt 4 ]; then
+	echo "Got greater than 4-char extension, stop. Got: $extension" >&2
+	exit 4
+fi
+namedir="$RANDOM_IN_DIR/$(dirname "$name")"
+linkfile="$RANDOM_IN_DIR/$name.$extension"
+
+mkdir -p "$namedir"
+ln -si "$targetfull" "$linkfile"
