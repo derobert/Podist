@@ -34,8 +34,10 @@ use MP3::Info qw(get_mp3info);
 use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
 use POSIX qw(strftime);
+use Term::Size::Any qw(!:DEFAULT);    # need to call ->import w/o polution
 use Text::ASCIITable;
 use Text::CSV;
+use URI::Escape qw(uri_escape);
 use XML::FeedPP;
 use Carp qw(longmess);
 
@@ -51,6 +53,8 @@ use feature 'say';
 use strict;
 
 my $DB;           # set by setup
+my $TERM_COLS;    # set by setup
+my $TERM_LINES;   # set by setup
 sub CONFIG();     # defined by setup
 sub COMMAND();    # defined by register_commands
 sub USER_AGENT(); # below
@@ -73,8 +77,9 @@ my %SUFFIX_MAP = (
 	'application/x-ogg' => 'ogg',
 );
 my %MIME_MAP = (
-	mp3 => 'audio/mpeg',
-	ogg => 'audio/ogg',
+	mp3  => 'audio/mpeg',
+	ogg  => 'audio/ogg',
+	opus => 'audio/ogg; codecs=opus'
 );
 
 exit go();
@@ -662,7 +667,7 @@ sub list {
 		config => [qw( gnu_compat require_order )]);
 
 	my %opts;
-	$go->getoptions(\%opts, qw(feeds|f) ) or pod2usage(2);
+	$go->getoptions(\%opts, qw(feeds|f randoms|r) ) or pod2usage(2);
 	keys %opts or pod2usage("Need to specify something to list.");
 	
 	if ($opts{feeds}) {
@@ -679,6 +684,35 @@ SELECT
   FROM feeds
   ORDER BY feed_enabled DESC, feed_name ASC
 QUERY
+		say $tab;
+	}
+
+	if ($opts{randoms}) {
+		my $randoms = find_random_items();
+		my $tab = Text::ASCIITable->new({
+				outputWidth => $TERM_COLS,
+				headingText => 'Random Items'
+		});
+		$tab->setCols('DB', 'File', 'Name', 'Weight', 'As %');
+		my $longwidth = int(($TERM_COLS-32) / 2);
+		$longwidth = 20 if $longwidth < 20;
+		$tab->setColWidth('File', $longwidth);
+		$tab->setColWidth('Name', $longwidth);
+		foreach my $random (
+			sort({ $::a->{random_file} cmp $::b->{random_file} }
+				@{$randoms->{randoms}}),
+			sort({ $::a->{random_file} cmp $::b->{random_file} }
+				@{$randoms->{disabled}}))
+		{
+			$tab->addRow(
+				$random->{random_no},
+				$random->{random_file},
+				$random->{random_name},
+				$random->{random_weight},
+				sprintf('%.3f',
+					100 * $random->{random_weight} / $randoms->{total_weight}));
+		}
+
 		say $tab;
 	}
 }
@@ -909,7 +943,7 @@ sub playlist {
 		or LOGDIE("Could not create playlist media directory $plist_dir: $!");
 	TRACE("Using playlist dir $plist_dir");
 
-	my @randoms = find_random_items();
+	my $randoms = find_random_items();
 	my @playlist = ();
 	my @bans;
 	my $duration = 0;
@@ -923,16 +957,21 @@ sub playlist {
 	my $random_mode = lc(CONFIG->{playlist}{randomchancemode});
 
 	if (CONFIG->{playlist}{announcebegin}) {
-		push @playlist, announce(begin => $plist_dir, {
+		push @playlist, [announce(begin => $plist_dir, {
 			current => $p_no,
 			next => 1+$p_no,
-		});
+		}), 0];
 	}
 
 	my $mark = $DB->prepare(<<QUERY);
 UPDATE enclosures
   SET playlist_no = ?, playlist_so = ?
   WHERE enclosure_no = ?
+QUERY
+
+	my $noterandom = $DB->prepare(<<QUERY);
+INSERT INTO random_uses(random_no, playlist_no, playlist_so)
+  VALUES (?, ?, ?)
 QUERY
 
 	until ($duration >= CONFIG->{playlist}{targetduration}
@@ -978,7 +1017,7 @@ QUERY
 			or last;
 		DEBUG("Picked feed $feed_no, enc $enc_no, dur $enc_time");
 
-		push @playlist, $enc_file;
+		push @playlist, [$enc_file, 1];
 		$duration += $enc_time;
 
 		if ($feed_no == $last_feed) {
@@ -1005,8 +1044,14 @@ QUERY
 		my $chance = $x * $random_m + $random_b;
 		TRACE("Random chance = $chance");
 		if (rand() < $chance) {
-			my $item = get_one_random(\@randoms, $mark, $p_no, 1+@playlist);
-			DEBUG("Adding random item $item");
+			my $item = get_one_random(
+				randoms  => $randoms,
+				mark     => $mark,
+				note     => $noterandom,
+				playlist => $p_no,
+				position => (1 + @playlist),
+			);
+			DEBUG("Adding random item $item->[0]");
 			push @playlist, $item;
 
 			$since_rand_time = 0;
@@ -1030,32 +1075,35 @@ QUERY
 
 	if ((my $ll = CONFIG->{playlist}{leadoutlength}) > 0) {
 		if (CONFIG->{playlist}{announceleadout}) {
-			push @playlist, announce(leadout => $plist_dir, {
+			push @playlist, [announce(leadout => $plist_dir, {
 				current => $p_no,
 				next => 1+$p_no,
-			});
+			}), 0];
 		}
 
 		for (1..$ll) {
-			my $item = get_one_random(\@randoms);
-			DEBUG("Adding leadout item $item");
+			my $item = get_one_random(
+				randoms  => $randoms,
+			);
+			DEBUG("Adding leadout item $item->[0]");
 			push @playlist, $item;
 		}
 	}
 
 	if (CONFIG->{playlist}{announceend}) {
-		push @playlist, announce(end => $plist_dir, {
+		push @playlist, [announce(end => $plist_dir, {
 			current => $p_no,
 			next => 1+$p_no,
-		});
+		}), 0];
 	}
 
 	my $fname = get_playlist_path(playlist => $p_no);
 	DEBUG("Writing playlist $fname");
-	write_file($fname, map $_ =~ m!^/! ? "$_\n" : "$plist_dir/$_\n", @playlist);
+	write_file($fname, map $_->[1] ? "$plist_dir/$_->[0]\n" : "$_->[0]\n", @playlist);
 	TRACE("Moving files");
-	foreach my $f (@playlist) {
-		next if $f =~ m!^/!; # prob random item
+	foreach my $item (@playlist) {
+		next unless $item->[1]; # make sure move flag is set
+		my $f = $item->[0];
 		my $old = notaint(CONFIG->{storage}{pendingmedia}."/$f");
 		my $new = notaint("$plist_dir/$f");
 		
@@ -1097,27 +1145,78 @@ sub find_mediafile {
 
 	$opts{playlist} // LOGDIE("TODO: find_mediafile for non-playlisted");
 	$opts{archived} //= 0;
+	$opts{type} //= 'enclosure';
 	$opts{file} // LOGDIE("find_mediafile not given file name");
 
-	get_playlist_mediapath(%opts) . '/' . $opts{file};
+	if ('enclosure' eq $opts{type}) {
+		return get_playlist_mediapath(%opts) . '/' . $opts{file};
+	} elsif ('randommedia' eq $opts{type}) {
+		return notaint(CONFIG->{storage}{playlistedmedia} . '/random/' . $opts{file});
+	} else {
+		LOGCONFESS("Uknown media file type: $opts{type}");
+	}
 }
 
 sub get_one_random {
-	my ($randoms, $mark, $p_no, $p_pos) = @_;
-	my $rmedia = $randoms->[int rand @$randoms];
+	# FIXME: Encapsulation violation. Possibly unexpected behavior
+	#        depending on if mark is passed. Refactor.
+	my %opts        = @_;
+	my $random_info = $opts{randoms}
+		or LOGCONFESS "Caller failed to pass randoms";
+	my $mark       = $opts{mark};
+	my $noterandom = $opts{note};
+	my $p_no       = $opts{playlist};
+	my $p_pos      = $opts{position};
 
-	return $rmedia if rand() >= CONFIG->{playlist}{randomfeedratio};
-	return $rmedia unless defined $mark;
-	return $rmedia
-		unless my ($enc_no, $enc_file) = $DB->selectrow_array(<<QUERY);
+	# First see if we can use a random item feed; if not, we fall back
+	# to RandomMedia.
+gor_try_feed: {
+		last gor_try_feed unless defined $mark;
+		last gor_try_feed if rand() >= CONFIG->{playlist}{randomfeedratio};
+		last gor_try_feed
+			unless my ($enc_no, $enc_file) = $DB->selectrow_array(<<QUERY);
 SELECT enclosure_no, enclosure_file
   FROM valids
   WHERE feed_is_music = 1
   ORDER BY random()
   LIMIT 1
 QUERY
-	$mark->execute($p_no, $p_pos, $enc_no);
-	return $enc_file;
+		$mark->execute($p_no, $p_pos, $enc_no);
+		return [$enc_file, 1];
+	}
+
+	# We've fallen back to RandomMedia. Pick a random weight less than
+	# the total, then find the item with a binary search.
+	my $target  = int rand($random_info->{total_weight});
+	my $randoms = $random_info->{randoms};
+	my ($low, $high) = (0, $#$randoms);
+
+	# lacking a better guess, let's start our search assuming equal
+	# weights. Or at least no bias towards one side of the array. This
+	# is a performance assumption, not correctness.
+	#
+	# XXX: We wind up with maximum probes when our initial guess is
+	#      off by one. Not a huge issue, but silly, especially since
+	#      that's the most common case!
+	my $i = int ($high * $target/$random_info->{total_weight});
+	while (1) {
+		TRACE("bin search: i=$i, low=$low, high=$high");
+		my $item = $randoms->[$i]
+			or LOGCONFESS("Binary search bug - no item");
+		if ($target > $item->{range_high}) {
+			$low = $i + 1;
+			$i = $low+int(($high-$low)/2);
+		} elsif ($target < $item->{range_low}) {
+			$high = $i - 1;
+			$i = $high-int(($high-$low)/2);
+		} else {
+			$noterandom->execute($item->{random_no}, $p_no, $p_pos) if $noterandom;
+			# TODO: Really shouldn't be hard-coding this...
+			return ['random/'.$item->{random_file}, 0];
+		}
+	}
+
+	LOGCONFESS("Unreachable code reached");
 }
 
 sub announce {
@@ -1215,19 +1314,57 @@ sub playlist_valid_where {
 }
 
 sub find_random_items {
-	my @files;
+	wantarray and LOGCONFESS("find_random_items no longer returns an array");
 
+	my $random_info = {
+		randoms      => [],
+		disabled     => [],
+		total_weight => 0,
+		# note that total_weight will be 1 more than the greatest
+		# range_high, but that's OK because 0 ≤ (rand X) < X
+	};
+
+	TRACE("Finding random items");
+	my $randommedia = notaint(CONFIG->{storage}{randommedia});
 	find({
 			wanted => sub {
 				-f -r $File::Find::fullname
-					and push @files, $File::Find::fullname;
+					or return;
+				(my $relname = $File::Find::name) =~ s!^\Q$randommedia/\E!!
+					or LOGCONFESS("Couldn't strip RandomMedia from $File::Find::name");
+				my $dat = $DB->find_or_add_random($relname);
+
+				# range_low and range_high are so we can do a binary
+				# search to find the right item. Strictly speaking, one
+				# or the other is superfluous.
+				#
+				# We skip weight-0 items because they'd otherwise wind
+				# up with a weird range_high < range_low. Maybe that'd
+				# work, but easier to just prohibit it. Put them in
+				# disabled instead so they can still be listed.
+				#
+				# Note the DB has a constraint to force ≥ 0. So
+				# negative should never happen, but consider it disabled
+				# just in case.
+				if ($dat->{random_weight} > 0) {
+					$dat->{range_low} = $random_info->{total_weight};
+					$random_info->{total_weight} += $dat->{random_weight};
+					$dat->{range_high} = $random_info->{total_weight} - 1;
+					push @{$random_info->{randoms}}, $dat;
+				} else {
+					push @{$random_info->{disabled}}, $dat;
+				}
 			},
 			follow  => 1,
 			untaint => 1,
 		},
-		notaint(CONFIG->{storage}{randommedia}));
+		$randommedia);
 
-	return @files;
+	DEBUG('Found ', scalar(@{$random_info->{randoms}}),
+	      ' (+', scalar(@{$random_info->{disabled}}),
+	      " disabled) random items, total weight $random_info->{total_weight}.");
+
+	return $random_info;
 }
 
 sub archive {
@@ -1298,27 +1435,48 @@ sub feed {
 			$enc->{feed_name});
 		my @item_extra;
 		if (CONFIG->{feed}{fudgedates}) {
-			@item_extra = (
-				pubDate     => $enc->{playlist_no} * 1000 + $enc->{playlist_so},
+			@item_extra
+				= (pubDate => $enc->{playlist_no} * 1000 + $enc->{playlist_so});
+			push @item_extra,
 				description => q{From }
-					. strftime('%F %H:%M:%S %Z', localtime $enc->{article_when}) . q{.}
-			);
+				. strftime('%F %H:%M:%S %Z', localtime $enc->{article_when}) . q{.}
+				if defined $enc->{article_when};
 		} else {
-			@item_extra = (pubDate => $enc->{article_when});
+			@item_extra = (pubDate => $enc->{article_when})
+				if defined $enc->{article_when};
 		}
 		my $item = $feed->add_item(title => $title, @item_extra);
-		$item->guid("podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no}, 'false');
+		if ('enclosure' eq $enc->{type}) {
+			$item->guid(
+				"podist-" . $DB->uuid . '-enclosure-' . $enc->{enclosure_no},
+				'false');
+		} elsif ('randommedia' eq $enc->{type}) {
+			$item->guid(
+				"podist-"
+					. $DB->uuid
+					. "-randommedia-$enc->{enclosure_no}-$enc->{playlist_no}-$enc->{playlist_so}",
+				'false'
+			);
+		} else {
+			LOGCONFESS("Unknown item type: $enc->{type}.");
+		}
 		my $mime;
-		$enc->{enclosure_file} =~ /\.(\S{3})$/
+		$enc->{enclosure_file} =~ /\.(\S{3,4})$/
 			and $mime = $MIME_MAP{lc $1};
 		my $file = find_mediafile(
 			playlist => $enc->{playlist_no},
 			archived => defined $enc->{playlist_archived},
+			type => $enc->{type},
 			file => $enc->{enclosure_file},
 		);
 		my $size = -s $file;
-		$item->set('source@url', $enc->{feed_url});
-		$item->set('enclosure@url', CONFIG->{feed}{baseurl} . File::Spec->abs2rel($file, CONFIG->{storage}{playlists}));
+		$item->set('source@url', $enc->{feed_url}) if defined $enc->{feed_url};
+		my $urlextra
+			= ($enc->{type} eq 'randommedia')
+			? "?$enc->{playlist_no}-$enc->{playlist_so}"
+			: q{};
+		my $urlpath = join('/', map(uri_escape($_), split('/', File::Spec->abs2rel($file, CONFIG->{storage}{playlists}))));
+		$item->set('enclosure@url', CONFIG->{feed}{baseurl} . $urlpath . $urlextra );
 		$item->set('enclosure@length', $size);
 		$item->set('enclosure@type', $mime) if defined $mime;
 	}
@@ -1376,6 +1534,24 @@ sub setup {
 	*CONFIG = sub() { $config };
 
 	init_logging();
+
+	# get terminal width
+	$TERM_COLS  = 0 + notaint($ENV{COLUMNS} // 0);
+	$TERM_LINES = 0 + notaint($ENV{LINES}   // 0);
+	if (0 == $TERM_COLS || 0 == $TERM_LINES) {
+		TRACE("Getting terminal size via Term::Size::Any");
+		my ($c, $l) = Term::Size::Any::chars(*STDOUT);
+		$TERM_COLS  ||= $c // 0;
+		$TERM_LINES ||= $l // 0;
+	}
+	if (0 == $TERM_COLS || 0 == $TERM_LINES) {
+		WARN(
+			"Failed to get terminal size (got ${TERM_COLS}x${TERM_LINES}); defaulting 0s to 80x24."
+		);
+		$TERM_COLS  ||= 80;
+		$TERM_LINES ||= 24;
+	}
+	TRACE("Terminal size: ${TERM_COLS}x${TERM_LINES}.");
 
 	if (CONFIG->{notyetconfigured}) {
 		FATAL(<<ERR);
@@ -1858,6 +2034,12 @@ Shows various things from the database.
 =item B<--feeds> | B<-f>
 
 List the feeds in the database, both enabled and disabled.
+
+=item B<--randoms> | B<-r>
+
+List the random items found on the filesystem, along with their weight
+(from the database). Note that the also adds any new random items to the
+database.
 
 =back
 

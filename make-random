@@ -1,0 +1,82 @@
+#!/bin/bash
+set -e -o pipefail
+shopt -s extglob
+
+target_LUFS=-23
+target=i=$target_LUFS:tp=-2:lra=20:dual_mono=true
+
+ffshutup=(-nostdin -hide_banner -nostats -loglevel info)
+
+smso=$(tput smso)
+rmso=$(tput rmso)
+
+declare -A found_input
+
+while IFS= read -r -d $'\0' -u 8 fin; do # fd 8 is "find" at end of loop; pipe would create subshell.
+	fshort="${fin#random.in/}"
+	fshort="${fshort%.????(?)}"
+	fout="random/$fshort.opus"
+	found_input[$fout]=y
+
+	if [ -f "$fout" ] && ! [ "$fout" -nt "$fin" ] && ! [ "$fout" -ot "$fin" ]; then
+		continue
+	fi
+
+
+	echo "Processing $fshort:" >&2
+
+	foutdir=$(dirname "$fout")
+	if [[ "$fout" == */* ]] && ! [ -d "$foutdir" ]; then
+		echo "   Creating subdir $foutdir." >&2;
+		mkdir -p "$foutdir"
+	fi
+
+	# the following is vomit-worthy. Thank you, ffmpeg.
+	IFS=' ' read -u 9 -r I TP LRA THRESH 9< <( 
+		ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a loudnorm=$target:print_format=json -f null - \
+			|& grep '^{$' -A99 \
+			| jq -r '.input_i, .input_tp, .input_lra, .input_thresh' \
+			| tr '\n' ' '
+		echo
+	)
+	echo "   I=$I TP=$TP LRA=$LRA THRESH=$THRESH" >&2
+
+	# now, decide if we're going to use loudnorm or volume to apply the
+	# change. This is a workaround due to a stupid limitation in
+	# loudnorm (LRA is limited to 20). Because all music must be
+	# overcompressed pop!
+	#
+	# If we're amplifying, presume we need loudnorm to avoid clipping.
+	# Otherwise, use volume. And so we get to compare decimals in bash,
+	# always a fun thing!
+	if echo "$I $target_LUFS" | awk '{ exit !($1 < $2) }'; then
+		# still have to grep this because fuck you ffmpeg
+		filter="loudnorm=$target:linear=true:print_format=summary:measured_i=$I:measured_lra=$LRA:measured_tp=$TP:measured_thresh=$THRESH"
+		ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a "$filter" -c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout" \
+			|& grep -E '^(Output (Integrated|True Peak|LRA|Threshold)|Normalization Type|Target Offset)' \
+			| sed -e "s/Dynamic/${smso}Dynamic${rmso}/; s/^/   /" \
+			>&2
+	else
+		adjust="$(echo "$I $target_LUFS" | awk '{ print($2 - $1) }')"
+		echo "   Adjusting $adjust dB." >&2
+		filter="volume=replaygain=drop:volume=${adjust}dB"
+		ffmpeg "${ffshutup[@]}" -loglevel error -i "$fin" -filter:a "$filter" \
+			-c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout"
+	fi
+
+	
+	touch -m -r "$fin" "$fout"
+	
+	echo -e "done.\n" >&2
+done 8< <(find -L random.in -type f -print0)
+
+echo -n 'Cleaning non-matching opus files from random... ' >&2
+deleted=0
+while IFS= read -r -d $'\0' -u 9 f; do
+	if ! [ y = "${found_input[$f]}" ]; then
+		let ++deleted
+		rm "$f"
+	fi
+done 9< <(find random -name '*.opus' -type f -print0)
+find random -type d -empty -delete
+echo "$deleted removed." >&2

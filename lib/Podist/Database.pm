@@ -2,6 +2,7 @@ package Podist::Database;
 use feature 'state';
 use Carp;
 use DBI;
+use File::Spec qw();
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use UUID;
 use Moose;
@@ -116,6 +117,49 @@ sub link_article_enclosure {
 	return;
 }
 
+sub find_or_add_random {
+	my ($self, $file) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		SELECT random_no, random_weight, random_name FROM randoms
+		 WHERE random_file = ?
+	});
+
+	my ($number, $weight, $name);
+	$sth->execute($file);
+	if (($number, $weight, $name) = $sth->fetchrow_array) {
+		$sth->finish; # should only be one row, but just in case
+	} else {
+		# not found, add it. Rare, so no need to cache sth here. Build
+		# user presentable name from file name (should do tags someday).
+
+		(undef, undef, $name) = File::Spec->splitpath($file);
+		$name =~ s/\..{1,4}$//;
+
+		INFO("Adding new random item $file to DB with name $name");
+		my $sth = $self->prepare(q{
+			INSERT INTO randoms(random_file, random_name) VALUES (?, ?)
+		});
+		$sth->execute($file, $name);
+		$number = $self->last_insert_id('', '', 'randoms', 'random_no')
+			or confess "Failed to get a random_no back from DB";
+		DEBUG("New random is number $number");
+
+		($weight) = $self->selectrow_array(
+			q{SELECT random_weight FROM randoms WHERE random_no = ?},
+			{}, $number
+		) or confess "Could not find freshly-inserted random $number";
+	}
+
+	return {
+		random_no     => $number,
+		random_file   => $file,
+		random_name   => $name,
+		random_weight => $weight,
+	};
+
+}
+
 sub add_fetch {
 	my ($self, $feed_no) = @_;
 
@@ -178,31 +222,49 @@ sub unarchived_playlist_info {
 	my ($self) = @_;
 
 	my $sth = $self->prepare_cached(<<SQL);
-   SELECT info.*
-        , a.article_title AS article_title
-        , a.article_when AS article_when
-        , f.feed_name AS feed_name
-        , f.feed_url AS feed_url
-     FROM ( SELECT e.enclosure_no
-                 , e.enclosure_file
-                 , e.enclosure_time
-                 , e.playlist_no
-                 , e.playlist_so
-                 , p.playlist_archived
-                 , (   SELECT a.article_no
-                         FROM articles_enclosures ae
-                         JOIN articles a ON (ae.article_no = a.article_no)
-                        WHERE ae.enclosure_no = e.enclosure_no
-                          AND a.article_use = 1
-                     ORDER BY CASE WHEN a.article_title IS NULL THEN 1 ELSE 0 END, a.article_no
-                        LIMIT 1
-                   ) AS first_article_no
-              FROM enclosures e
-              JOIN playlists p ON (e.playlist_no = p.playlist_no)
-             WHERE p.playlist_archived IS NULL
-          ) AS info
-LEFT JOIN articles a ON (info.first_article_no = a.article_no)
-LEFT JOIN feeds f ON (a.feed_no = f.feed_no)
+       SELECT 'enclosure' AS type
+            , info.*
+            , a.article_title AS article_title
+            , a.article_when AS article_when
+            , f.feed_name AS feed_name
+            , f.feed_url AS feed_url
+         FROM ( SELECT e.enclosure_no
+                     , e.enclosure_file
+                     , e.enclosure_time
+                     , e.playlist_no
+                     , e.playlist_so
+                     , p.playlist_archived
+                     , (   SELECT a.article_no
+                             FROM articles_enclosures ae
+                             JOIN articles a ON (ae.article_no = a.article_no)
+                            WHERE ae.enclosure_no = e.enclosure_no
+                              AND a.article_use = 1
+                         ORDER BY CASE WHEN a.article_title IS NULL THEN 1 ELSE 0 END, a.article_no
+                            LIMIT 1
+                       ) AS first_article_no
+                  FROM enclosures e
+                  JOIN playlists p ON (e.playlist_no = p.playlist_no)
+                 WHERE p.playlist_archived IS NULL
+              ) AS info
+    LEFT JOIN articles a ON (info.first_article_no = a.article_no)
+    LEFT JOIN feeds f ON (a.feed_no = f.feed_no)
+UNION ALL
+       SELECT 'randommedia' AS type
+            , ru.random_no
+            , r.random_file
+            , NULL AS random_time -- do not have or need...
+            , ru.playlist_no
+            , ru.playlist_so
+            , p.playlist_archived
+            , NULL AS first_article_no -- makes no sense
+            , r.random_name
+            , NULL AS article_when -- maybe someday read tags to get date
+            , 'Random Media' AS feed_name
+            , NULL AS feed_url
+         FROM random_uses ru
+         JOIN playlists p ON (ru.playlist_no = p.playlist_no)
+         JOIN randoms r ON (ru.random_no = r.random_no)
+         WHERE p.playlist_archived IS NULL
  ORDER BY playlist_no, playlist_so
 SQL
 	$sth->execute;
@@ -214,7 +276,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 6;
+	my $current_vers = 7;
 
 	# Versions:
 	# 0 - no db yet
@@ -224,6 +286,7 @@ sub _get_migrations {
 	# 4 - adds playlist archival
 	# 5 - podist_instance (UUID); add some indexes (performance)
 	# 6 - usable enclosure view
+	# 7 - store random music selections in db
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -455,8 +518,28 @@ CREATE VIEW usable_enclosures AS
 SQL
 	}
 
+	if ($db_vers < 7) {
+		push @sql, <<SQL;
+CREATE TABLE randoms (
+  random_no        INTEGER   NOT NULL PRIMARY KEY,
+  random_file      TEXT      NOT NULL UNIQUE,
+  random_name      TEXT      NOT NULL,
+  random_weight    INTEGER   NOT NULL DEFAULT 1000, -- set to 0 to disable
+  CONSTRAINT random_weight_is_non_negative CHECK (random_weight >= 0)
+)
+SQL
+		push @sql, <<SQL;
+CREATE TABLE random_uses (
+  random_no        INTEGER   NOT NULL REFERENCES randoms,
+  playlist_no      INTEGER   NOT NULL REFERENCES playlists,
+  playlist_so      INTEGER   NOT NULL,
+  UNIQUE(playlist_no, playlist_so)
+)
+SQL
+	}
+
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 6};
+	push @sql, q{PRAGMA user_version = 7};
 
 	return \@sql;
 }
