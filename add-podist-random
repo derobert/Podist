@@ -37,7 +37,7 @@ if [ -z "$name" ]; then
 	                   --show-tag=DiscTotal  --show-tag=TrackNumber  \
 	                   --show-tag=TrackTotal                         \
 	                   "$target" \
-	              | recode -f utf8..ascii )
+	              | iconv -t ascii//TRANSLIT | tr '/' '-' )
 	default="${tags[artist]} - ${tags[album]} - "
 	if [ "${tags[disctotal]}" -ge 10 ]; then
 		default+=$(printf '%02i-' "${tags[discnumber]}")
