@@ -3,6 +3,7 @@ set -e
 set -o pipefail
 
 RANDOM_IN_DIR=~/Podist/random.in
+MAX_NAME_LENGTH=250
 
 if [ $# -ne 1 -a $# -ne 2 ]; then
 	cat >&2 <<'USAGE'
@@ -50,6 +51,10 @@ if [ -z "$name" ]; then
 		default+=$(printf '%i. ' "${tags[tracknumber]}")
 	fi
 	default+="${tags[title]}"
+	if [ ${#default} -gt 250 ]; then
+		let howmuch=${#default}-MAX_NAME_LENGTH
+		echo "$(tput bold)WARNING: $(tput sgr0)Suggested name is likely too long (+$howmuch). Please shorten."
+	fi
 	IFS= read -p "Install name: " -e -i "$default" -r name
 fi
 
