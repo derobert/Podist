@@ -1418,8 +1418,6 @@ sub archive {
 }
 
 sub feed {
-	# TODO: Somehow get the random between-podcast items, but not of
-	#       course the leadout.
 	my $feed = XML::FeedPP::RSS->new(
 		title       => 'Podist RSS Export',
 		link        => 'https://github.com/derobert/Podist',
