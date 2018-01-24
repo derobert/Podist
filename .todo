@@ -1,10 +1,19 @@
 <?xml version="1.0"?>
 <todo version="0.1.20">
+    <note priority="verylow" time="1436920611">
+        Parallel download (grab from multiple servers at once)
+    </note>
     <note priority="verylow" time="1433650768">
         Specify all feed options when adding a feed. Missing a lot that are db-only now.
     </note>
-    <note priority="low" time="1436920611">
-        Parallel download (grab from multiple servers at once)
+    <note priority="verylow" time="1433315290">
+        "Play something" for when you're on the computer and want a podcast. Need to figure how that should interact with playlisted, but not yet played, podcasts.
+    </note>
+    <note priority="verylow" time="1433315222">
+        Web interface
+    </note>
+    <note priority="low" time="1516807704">
+        Status: add sub-item to already playlisted for unarchived
     </note>
     <note priority="low" time="1434066868" done="1445791741">
         Add oldest unplaylisted to status
@@ -12,11 +21,11 @@
     <note priority="low" time="1433315474">
         Support for multiple shorts in a row (e.g., target x minutes). Mainly thinking of Composers Datebook.
     </note>
-    <note priority="low" time="1433315222">
-        Web interface
-    </note>
-    <note priority="low" time="1433315103">
+    <note priority="low" time="1433315103" done="1516807617">
         Atom output (to feed into Android podcast players)
+        <comment>
+            Finished a while ago.
+        </comment>
     </note>
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
@@ -26,9 +35,6 @@
         <note priority="medium" time="1445792498">
             cleanup: should it clean up enclosures where all of the articles referencing them are _use=0? (If so, what if we get another article that uses the enclosure...)
         </note>
-    </note>
-    <note priority="medium" time="1433315290">
-        "Play something" for when you're on the computer and want a podcast. Need to figure how that should interact with playlisted, but not yet played, podcasts.
     </note>
     <note priority="medium" time="1433314505">
         Audio processing
