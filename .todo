@@ -12,6 +12,24 @@
     <note priority="verylow" time="1433315222">
         Web interface
     </note>
+    <note priority="low" time="1518250138">
+        Speech output is truncated. Seems to be from asking it for a given frequency (sample rate). Debian bug #890018. (Could work around by using sox to resample).
+    </note>
+    <note priority="low" time="1518161823">
+        Proper exceptions for Storage.pm instead of die/croak all over the place (e.g., exception objects). Much better user experience to have Podist catch and report non-programmer errors.
+    </note>
+    <note priority="low" time="1518161348">
+        Would benefit from an ORM, like DBIC. Podist::Database is getting more and more pseudo-ORM-like. And to the extent it isn't, things are working around it...
+        <note priority="verylow" time="1518161711">
+            This would probably also greatly reduce the weird coupling between the two...
+        </note>
+        <note priority="verylow" time="1518161478">
+            example avoided: we pass an enclosure_no to Storage (which we got from the DB), which then calls back to the DB to get more details about it. Instead of just passing an Enclosure object.
+        </note>
+        <note priority="low" time="1518161562">
+            example: get_*_storage returning a list of values (and all the code duplication there)
+        </note>
+    </note>
     <note priority="low" time="1516807704">
         Status: add sub-item to already playlisted for unarchived
     </note>
@@ -30,6 +48,15 @@
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
     </note>
+    <note priority="medium" time="1517772631">
+        fsck improvements
+        <note priority="medium" time="1517773306">
+            enclosure_store that makes no sense (e.g., pending + playlisted)
+        </note>
+        <note priority="medium" time="1517772649">
+            Check for playlisted + enclosure_use=0
+        </note>
+    </note>
     <note priority="medium" time="1445791807">
         Make everything care about article_use.
         <note priority="medium" time="1445792498">
@@ -38,6 +65,9 @@
     </note>
     <note priority="medium" time="1433314505">
         Audio processing
+        <note priority="verylow" time="1518244365">
+            Should speech really go in processed? Its not actually processed from other audio, and e.g., a newer version of Festival could make it sound really different. Might want to archive it. Or feed it through (some) audio processing, I suppose.
+        </note>
         <note priority="low" time="1433314988">
             Segment detection &amp; splitting (e.g., would be nice to find Science or Fiction in SGU, split it to its own file)
         </note>
@@ -86,5 +116,8 @@
     </note>
     <note priority="veryhigh" time="1433480122">
         Desperately need basic test suite. (Do the database migrations work? Who knows...)
+        <note priority="high" time="1518160516">
+            Probably can use git-worktree to check out old versions to test migration between each DB version.
+        </note>
     </note>
 </todo>

@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 # Podist - a podcatcher that generates playlists
-# Copyright ©2008–2015  Anthony DeRobertis
+# Copyright ©2008–2018  Anthony DeRobertis
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,6 +15,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+our $PODIST_VERSION = 0.4;
+our $CONFIG_VERSION = 2;
 
 use Config::General;
 use DBI;
@@ -47,17 +49,18 @@ use Pod::Usage;
 use FindBin;
 use lib "$FindBin::RealBin/lib";
 use Podist::Database;
+use Podist::Storage;
 
 use feature 'state';
 use feature 'say';
 use strict;
 
-my $DB;           # set by setup
-my $TERM_COLS;    # set by setup
-my $TERM_LINES;   # set by setup
-sub CONFIG();     # defined by setup
-sub COMMAND();    # defined by register_commands
-sub USER_AGENT(); # below
+my ($DB, $STORAGE);    # set by setup
+my $TERM_COLS;         # set by setup
+my $TERM_LINES;        # set by setup
+sub CONFIG();          # defined by setup
+sub COMMAND();         # defined by register_commands
+sub USER_AGENT();      # below
 
 # Average year on the Gregorian calendar (in seconds), ignoring leap
 # seconds (that is, presuming each day is 86,400 seconds long). This is
@@ -417,22 +420,14 @@ SELECT DISTINCT e.enclosure_no, e.enclosure_url
 QUERY
 	$sth->execute;
 
-	my $upd = $DB->prepare(<<QUERY);
-UPDATE enclosures
-  SET enclosure_file = ?
-  WHERE enclosure_no = ?
-QUERY
-
-	my $dir = CONFIG->{storage}{pendingmedia};
-
 	while (my ($enc_no, $enc_url) = $sth->fetchrow_array) {
 		INFO("Downloading $enc_url");
-		my (undef, $tmp) = tempfile('download.XXXXXX', DIR => notaint($dir));
+		my $tmp = $STORAGE->new_dl_temp();
 		my $resp = USER_AGENT->get( $enc_url, ':content_file' => $tmp);
 		unless ($resp->is_success) {
 			ERROR("Downloading $enc_url failed:");
 			ERROR($resp->status_line);
-			unlink($tmp);
+			$STORAGE->discard_dl_temp($tmp);
 			next;
 		}
 
@@ -442,7 +437,7 @@ QUERY
 			# Thank you, Virginia Foundation for the Humanities.
 			ERROR("Download truncated; expected $exp_len but got $act_len");
 			ERROR("Run Podist download to try this one again");
-			unlink($tmp);
+			$STORAGE->discard_dl_temp($tmp);
 			next;
 		}
 
@@ -485,9 +480,11 @@ QUERY
 
 		# Rename
 		DEBUG("Renaming to: $name");
-		rename($tmp, notaint("$dir/$name"));
-
-		$upd->execute($name, $enc_no);
+		$STORAGE->save_dl_temp(
+			temp         => $tmp,
+			new_name     => $name,
+			enclosure_no => $enc_no
+		);
 	}
 }
 
@@ -731,24 +728,7 @@ sub format_perday {
 	'0.00' eq $r ? $_[0] == 0 ? '' : 'T' : $r;
 }
 
-sub find_file {
-	my ($name, $playlist_no) = @_;
-	my $d_pending = CONFIG->{storage}{pendingmedia};
-	my $d_plist = CONFIG->{storage}{playlistedmedia};
-	my $full_name;
-	if (defined $playlist_no) {
-		$full_name = (-e "$d_plist/$playlist_no/$name")
-			? "$d_plist/$playlist_no/$name"
-			: "$d_plist/$name";
-	} else {
-		$full_name = "$d_pending/$name";
-	}
-
-	return (-e $full_name) ? $full_name : undef;
-}
-
 sub fsck {
-	# TODO: check for presence of expected files
 	my $problems = 0;
 	
 	TRACE('Looking for orphaned enclosures.');
@@ -770,23 +750,27 @@ QUERY
 	}
 	$sth->finish;
 
-	INFO("Number of problems found during fsck: $problems.");
+	$problems += $STORAGE->fsck;
+
+	if ($problems) {
+		ERROR("Number of problems remaining after fsck: $problems.");
+	} else {
+		INFO("No problems remain after fsck.");
+	}
 	return !$problems;
 }
 
 sub cleanup {
-	# TODO: enclosure table really ought to explicitly store where the
-	#       file is currently located: pending, unusable, playlist.
-	
 	fsck() || LOGDIE("fsck found problems - aborting cleanup");
 
 	hasherize(); # make sure we have the hash before moving the file
 
 	my $sth = $DB->prepare(<<QUERY);
-SELECT enclosure_file
+SELECT enclosure_no
   FROM enclosures
   WHERE
     enclosure_use = 0
+    AND enclosure_store = 'pending'
     AND playlist_no IS NULL
     AND enclosure_file IS NOT NULL
 QUERY
@@ -796,16 +780,9 @@ QUERY
 
 	INFO("Moving unusable files, this may take a while");
  	my $moved = 0;
- 	while (my ($file) = $sth->fetchrow_array) {
-		my $path = notaint(find_file($file, undef));
-		defined $path or next; # assume already moved
-		my $new = notaint(CONFIG->{storage}{unusablemedia} . "/$file");
-		-e $new
-			and LOGDIE("WTF — $new already exists");
-		
-		TRACE("Moving $file");
-		move $path, $new
-			or LOGDIE("rename($path, $new) failed: $!");
+	while (my ($e_no) = $sth->fetchrow_array) {
+		TRACE("Moving enclosure $e_no");
+		$STORAGE->unusable_pending($e_no);
 		++$moved;
 	}
 
@@ -817,8 +794,10 @@ QUERY
 }
 
 sub hasherize {
+	# TODO: Would benefit from a Storage iterator that'd also give the
+	#       path in one go. (See also stopwatch)
 	my $sth = $DB->prepare(<<QUERY);
-SELECT enclosure_no, enclosure_file, playlist_no
+SELECT enclosure_no
   FROM enclosures
   WHERE
     enclosure_file IS NOT NULL
@@ -836,12 +815,8 @@ QUERY
 
 	my $ctx = Digest->new('SHA-256')
 		or LOGDIE("Couldn't get SHA-256 digest");
-	while (my ($enc_no, $enc_file, $enc_plist) = $sth->fetchrow_array) {
-		my $file = find_file($enc_file, $enc_plist);
-		unless (defined $file) {
-			WARN("Couldn't find file for #$enc_no ($enc_file)");
-			next;
-		}
+	while (my ($enc_no) = $sth->fetchrow_array) {
+		my $file = $STORAGE->get_enclosure_path($enc_no);
 
 		$ctx->reset;
 		if (open my $fh, '<:raw', $file) {
@@ -853,7 +828,7 @@ QUERY
 		}
 		my $hash = 'sha256:' . $ctx->b64digest;
 
-		TRACE("$enc_file: $hash");
+		TRACE("$file: $hash");
 		$upd->execute($hash, $enc_no);
 	}
 }
@@ -883,8 +858,10 @@ QUERY
 }
 
 sub stopwatch {
+	# TODO: Someday make storage provide an iterator that'd combine this
+	#       select w/ getting the path. (See also hasherize)
 	my $sth = $DB->prepare(<<QUERY);
-SELECT enclosure_no, enclosure_file
+SELECT enclosure_no 
   FROM enclosures
   WHERE
     enclosure_file IS NOT NULL
@@ -901,14 +878,13 @@ QUERY
 	TRACE("Finding media without length in db");
 	$sth->execute;
 
-	my $dir = CONFIG->{storage}{pendingmedia};
-	while (my ($enc_no, $enc_file) = $sth->fetchrow_array) {
-		my $file = notaint("$dir/$enc_file");
+	while (my ($enc_no) = $sth->fetchrow_array) {
+		my $file = $STORAGE->get_enclosure_path($enc_no);
 		my $len;
 
-		unless ($enc_file =~ /\.(.{3})$/) {
-			ERROR("Could not find suffix in $enc_file");
-			ERROR("This shouldn't happen, as wel always set a suffix. WTF.");
+		unless ($file =~ /\.(.{3})$/) {
+			ERROR("Could not find suffix in $file");
+			ERROR("This shouldn't happen, as we always set a suffix. WTF.");
 			next;
 		}
 		if ($1 eq 'mp3') {
@@ -933,22 +909,14 @@ QUERY
 		defined $len && 0 == $len
 			and WARN("Got length of 0 for $file; probably wrong!");
 
-		DEBUG("$enc_file: " . (defined $len ? $len : 'undef'));
+		DEBUG("$file: " . (defined $len ? $len : 'undef'));
 		$upd->execute($len, $enc_no);
 	}
 }
 
 sub playlist {
-	$DB->do('INSERT INTO playlists(playlist_ctime) VALUES (?)', {}, time());
-
-	my $p_no = $DB->last_insert_id('', '', 'playlists', 'playlist_no')
-		or LOGDIE("Could not get playlist number");
-
-	my $plist_dir = get_playlist_mediapath(playlist => $p_no);
-	-d $plist_dir
-		or mkpath $plist_dir
-		or LOGDIE("Could not create playlist media directory $plist_dir: $!");
-	TRACE("Using playlist dir $plist_dir");
+	my $p_no
+		= $DB->add_playlist('Playlist %03i.m3u');    # TODO: should be conf
 
 	my $randoms = find_random_items();
 	my @playlist = ();
@@ -964,21 +932,30 @@ sub playlist {
 	my $random_mode = lc(CONFIG->{playlist}{randomchancemode});
 
 	if (CONFIG->{playlist}{announcebegin}) {
-		push @playlist, [announce(begin => $plist_dir, {
+		push @playlist, [announce('begin', $p_no, 1, {
 			current => $p_no,
 			next => 1+$p_no,
-		}), 0];
+		}), undef];
 	}
 
+	# TODO: FIXME; need storage manager support for this
 	my $mark = $DB->prepare(<<QUERY);
 UPDATE enclosures
-  SET playlist_no = ?, playlist_so = ?
+  SET playlist_no = ?, playlist_so = ?, enclosure_store = 'original'
   WHERE enclosure_no = ?
 QUERY
 
-	my $noterandom = $DB->prepare(<<QUERY);
-INSERT INTO random_uses(random_no, playlist_no, playlist_so)
-  VALUES (?, ?, ?)
+	my $note_intermission = $DB->prepare(<<QUERY);
+INSERT INTO random_uses(
+    random_no, random_use_reason, playlist_no, playlist_so
+  )
+    VALUES (?, 'intermission', ?, ?)
+QUERY
+	my $note_leadout = $DB->prepare(<<QUERY);
+INSERT INTO random_uses(
+    random_no, random_use_reason, playlist_no, playlist_so
+  )
+    VALUES (?, 'lead-out', ?, ?)
 QUERY
 
 	until ($duration >= CONFIG->{playlist}{targetduration}
@@ -1012,9 +989,9 @@ QUERY
 		TRACE("ORDER BY $order");
 
 		# Chose an item.
-		my ($feed_no, $enc_no, $enc_file, $enc_time)
+		my ($feed_no, $enc_no, $enc_time)
 			= $DB->selectrow_array(<<QUERY);
-SELECT feed_no, enclosure_no, enclosure_file, enclosure_time
+SELECT feed_no, enclosure_no, enclosure_time
   FROM valids
   WHERE ($where) AND ($only_feed)
   ORDER BY $order
@@ -1024,7 +1001,11 @@ QUERY
 			or last;
 		DEBUG("Picked feed $feed_no, enc $enc_no, dur $enc_time");
 
-		push @playlist, [$enc_file, 1];
+		my $old_path = $STORAGE->get_enclosure_path($enc_no);
+		$mark->execute($p_no, 1+@playlist, $enc_no);
+		my $new_path = $STORAGE->get_enclosure_path($enc_no);
+		TRACE("Enclosure path change: $old_path -> $new_path");
+		push @playlist, [$new_path, $old_path];
 		$duration += $enc_time;
 
 		if ($feed_no == $last_feed) {
@@ -1037,8 +1018,6 @@ QUERY
 		if (++$feed_cnts{$feed_no} >= CONFIG->{playlist}{maximumperfeed}) {
 			push @bans, $feed_no;
 		}
-
-		$mark->execute($p_no, scalar(@playlist), $enc_no);
 
 		# Update random stats
 		++$since_rand_itms;
@@ -1054,7 +1033,7 @@ QUERY
 			my $item = get_one_random(
 				randoms  => $randoms,
 				mark     => $mark,
-				note     => $noterandom,
+				note     => $note_intermission,
 				playlist => $p_no,
 				position => (1 + @playlist),
 			);
@@ -1082,15 +1061,18 @@ QUERY
 
 	if ((my $ll = CONFIG->{playlist}{leadoutlength}) > 0) {
 		if (CONFIG->{playlist}{announceleadout}) {
-			push @playlist, [announce(leadout => $plist_dir, {
+			push @playlist, [announce('leadout', $p_no, 1+@playlist, {
 				current => $p_no,
 				next => 1+$p_no,
-			}), 0];
+			}), undef];
 		}
 
 		for (1..$ll) {
 			my $item = get_one_random(
 				randoms  => $randoms,
+				note     => $note_leadout,
+				playlist => $p_no,
+				position => (1 + @playlist),
 			);
 			DEBUG("Adding leadout item $item->[0]");
 			push @playlist, $item;
@@ -1098,67 +1080,42 @@ QUERY
 	}
 
 	if (CONFIG->{playlist}{announceend}) {
-		push @playlist, [announce(end => $plist_dir, {
+		push @playlist, [announce('end', $p_no, 1+@playlist , {
 			current => $p_no,
 			next => 1+$p_no,
-		}), 0];
+		}), undef];
 	}
 
-	my $fname = get_playlist_path(playlist => $p_no);
+	my $fname = $STORAGE->get_playlist_path($p_no);
 	DEBUG("Writing playlist $fname");
-	write_file($fname, map $_->[1] ? "$plist_dir/$_->[0]\n" : "$_->[0]\n", @playlist);
+
+	write_file(
+		$fname,
+		map(File::Spec->abs2rel($_->[0], CONFIG->{storage}{playlists}) . "\n",
+			@playlist));
+
+	# TODO: FIXME: Storage manager needs playlist building support to
+	#              build all this then commit it at the end.
 	TRACE("Moving files");
 	foreach my $item (@playlist) {
-		next unless $item->[1]; # make sure move flag is set
-		my $f = $item->[0];
-		my $old = notaint(CONFIG->{storage}{pendingmedia}."/$f");
-		my $new = notaint("$plist_dir/$f");
-		
-		-e $new
-			and LOGDIE("WTF - $new already exists");
+		next unless defined $item->[1]; # only if had old name
 
-		rename($old, $new)
-			or LOGDIE("could not rename $old to $new");
+		# FIXME: this is evil...
+		my (undef, $dir, undef) = File::Spec->splitpath($item->[0]);
+		-d $dir || mkdir $dir or LOGDIE("mkdir($dir): $!");
+		$STORAGE->_safe_move($item->[1], $item->[0]);
 	}
-}
-
-sub get_playlist_path {
-	my %opts = @_;
-	$opts{playlist} // LOGDIE("get_playlist_path called w/o playlist");
-	$opts{archived} //= 0;
-
-	my $storage = $opts{archived}
-		? CONFIG->{storage}{archivedplaylists}
-		: CONFIG->{storage}{playlists};
-
-	return notaint(
-		sprintf("%s/Playlist %03i.m3u", $storage, $opts{playlist}));
-}
-
-sub get_playlist_mediapath {
-	my %opts = @_;
-	$opts{playlist} // LOGDIE("get_playlist_mediapath called w/o playlist");
-	$opts{archived} //= 0;
-
-	my $storage = $opts{archived}
-		? CONFIG->{storage}{archivedmedia}
-		: CONFIG->{storage}{playlistedmedia};
-
-	return notaint("$storage/$opts{playlist}");
 }
 
 sub find_mediafile {
 	my %opts = @_;
 
-	$opts{playlist} // LOGDIE("TODO: find_mediafile for non-playlisted");
-	$opts{archived} //= 0;
-	$opts{type} //= 'enclosure';
-	$opts{file} // LOGDIE("find_mediafile not given file name");
+	$opts{type} // LOGDIE("find_mediafile w/o type");
 
 	if ('enclosure' eq $opts{type}) {
-		return get_playlist_mediapath(%opts) . '/' . $opts{file};
+		return $STORAGE->get_enclosure_path($opts{enclosure_no});
 	} elsif ('randommedia' eq $opts{type}) {
-		return notaint(CONFIG->{storage}{playlistedmedia} . '/random/' . $opts{file});
+		return notaint(CONFIG->{storage}{randommedia} . "/$opts{file}");
 	} else {
 		LOGCONFESS("Uknown media file type: $opts{type}");
 	}
@@ -1167,6 +1124,8 @@ sub find_mediafile {
 sub get_one_random {
 	# FIXME: Encapsulation violation. Possibly unexpected behavior
 	#        depending on if mark is passed. Refactor.
+	#
+	# FIXME: Even worse now with Storage.
 	my %opts        = @_;
 	my $random_info = $opts{randoms}
 		or LOGCONFESS "Caller failed to pass randoms";
@@ -1188,8 +1147,11 @@ SELECT enclosure_no, enclosure_file
   ORDER BY random()
   LIMIT 1
 QUERY
+		my $oldpath = $STORAGE->get_enclosure_path($enc_no);
 		$mark->execute($p_no, $p_pos, $enc_no);
-		return [$enc_file, 1];
+		my $newpath = $STORAGE->get_enclosure_path($enc_no);
+		TRACE("Random music feed paths: $oldpath -> $newpath");
+		return [$newpath, $oldpath];
 	}
 
 	# We've fallen back to RandomMedia. Pick a random weight less than
@@ -1218,8 +1180,10 @@ QUERY
 			$i = $high-int(($high-$low)/2);
 		} else {
 			$noterandom->execute($item->{random_no}, $p_no, $p_pos) if $noterandom;
-			# TODO: Really shouldn't be hard-coding this...
-			return ['random/'.$item->{random_file}, 0];
+			return [
+				CONFIG->{storage}{randommedia} . '/' . $item->{random_file},
+				undef
+			];
 		}
 	}
 
@@ -1227,7 +1191,7 @@ QUERY
 }
 
 sub announce {
-	my ($event, $dir, $subs) = @_;
+	my ($event, $p_no, $p_so, $subs) = @_;
 
 	$event = lc $event;
 	exists CONFIG->{speech}{message}{$event}
@@ -1238,15 +1202,24 @@ sub announce {
 
 	$msg =~ s/__(.+?)__/$subs->{lc $1}/ge;
 
-	return speak($msg => $dir);
+	my $tmp = speak($msg);
+	my ($s_no, $s_path) = $STORAGE->save_speech_temp(
+		temp        => $tmp,
+		event       => $event,
+		text        => $msg,
+		playlist_no => $p_no,
+		playlist_so => $p_so,
+	);
+	
+	return $s_path;
 }
 
 sub speak {
-	my ($what, $dir) = @_;
+	my ($what) = @_;
 
-	my (undef, $tmp_wav) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.wav');
+	my $tmp_wav = $STORAGE->new_speech_temp('.wav');
 
-	TRACE("Speaking $what");
+	TRACE("Speaking $what to $tmp_wav");
 
 	CONFIG->{speech}{engine} =~ /^festival$/i
 		or LOGDIE("Festival is the only supported TTS engine, sorry.");
@@ -1269,22 +1242,23 @@ sub speak {
 	run3 [qw(normalize-audio -q -a), $dBFS, $tmp_wav]
 		or LOGDIE("normalize-audio failed: $! $?");
 
+	# TODO: When add processing, make this generic.
 	my $format = CONFIG->{speech}{format};
 	if ($format eq 'wav') {
 		return $tmp_wav
 	} elsif ($format eq 'mp3') {
-		my (undef, $tmp_mp3) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.mp3');
+		my $tmp_mp3 = $STORAGE->new_speech_temp('.mp3');
 		TRACE("Encoding mp3");
 		run3 [qw(lame --quiet --preset medium), $tmp_wav, $tmp_mp3]
 			or LOGDIE("lame failed: $! $?");
-		unlink $tmp_wav;
+		$STORAGE->discard_speech_temp($tmp_wav);
 		return $tmp_mp3;
 	} elsif ($format eq 'ogg') {
-		my (undef, $tmp_ogg) = tempfile('speech.XXXXXX', DIR => notaint($dir), SUFFIX => '.ogg');
+		my $tmp_ogg = $STORAGE->new_speech_temp('.ogg');
 		TRACE("Encoding ogg");
 		run3 [qw(oggenc -Q -q0 -o), $tmp_ogg, $tmp_wav]
 			or LOGDIE("oggenc failed: $! $?");
-		unlink $tmp_wav;
+		$STORAGE->discard_speech_temp($tmp_wav);
 		return $tmp_ogg;
 	} else {
 		LOGDIE("Uknown format $_")
@@ -1375,6 +1349,7 @@ sub find_random_items {
 }
 
 sub archive {
+	local $_;
 	if (0 == @ARGV) {
 		ERROR("No playlists specified to archive. Try --help");
 		return;
@@ -1391,31 +1366,13 @@ sub archive {
 			return;
 		}
 
-		my $m3u_src = get_playlist_path(playlist => $p_no, archived => 0);
-		my $m3u_dst = get_playlist_path(playlist => $p_no, archived => 1);
-		my $media_src = get_playlist_mediapath(playlist => $p_no, archived => 0);
-		my $media_dst = get_playlist_mediapath(playlist => $p_no, archived => 1);
+		TRACE("Archiving media for playlist $p_no");
+		$STORAGE->archive_original($_)
+			foreach @{$DB->get_playlist_enclosures($p_no)};
+		$STORAGE->cleanup_original($p_no);
 
-		# check dest first, to give a better error message (already
-		# archived)
-		-f $m3u_dst
-			and LOGDIE("Archived playlist $m3u_dst already exists!");
-		-f $m3u_src
-			or LOGDIE("Playlist $m3u_src does not exist");
-		-d $media_dst
-			and LOGDIE("Archived media $media_dst already exists!");
-		-d $media_src
-			or LOGDIE("Media directory $media_src does not exist");
-
-		# DB first since it can roll back
-		$DB->archive_playlist($p_no);
-
-		# then move
-		TRACE("Moving $m3u_src -> $m3u_dst");
-		move($m3u_src, $m3u_dst) or LOGDIE("move $m3u_src -> $m3u_dst: $!");
-		TRACE("Moving $media_src -> $media_dst");
-		move($media_src, $media_dst)
-			or LOGDIE("move $media_src -> $media_dst: $!");
+		TRACE("Archiving playlist $p_no");
+		$STORAGE->archive_playlist($p_no);
 
 		# we commit after each archival, because a rollback wouldn't move
 		# the files back.
@@ -1432,8 +1389,18 @@ sub feed {
 		generator   => 'Podist',
 		pubDate     => time(),
 	);
+	my $include = CONFIG->{feed}{include};
 
 	foreach my $enc (@{ $DB->unarchived_playlist_info }) {
+		if ('randommedia' eq $enc->{type}) {
+			$enc->{role} ne 'intermission' || $include->{intermissions}
+				or next;
+			$enc->{role} ne 'lead-out' || $include->{leadout}
+				or next;
+		}
+		'speech' ne $enc->{type} || $include->{speech}
+			or next;    # TODO: not yet implemented
+
 		my $title = sprintf('[%03i-%02i] %s (%s)',
 			$enc->{playlist_no}, $enc->{playlist_so},
 			($enc->{article_title} // $enc->{enclosure_file}),
@@ -1469,10 +1436,9 @@ sub feed {
 		$enc->{enclosure_file} =~ /\.(\S{3,4})$/
 			and $mime = $MIME_MAP{lc $1};
 		my $file = find_mediafile(
-			playlist => $enc->{playlist_no},
-			archived => defined $enc->{playlist_archived},
 			type => $enc->{type},
 			file => $enc->{enclosure_file},
+			enclosure_no => $enc->{enclosure_no},
 		);
 		my $size = -s $file;
 		$item->set('source@url', $enc->{feed_url}) if defined $enc->{feed_url};
@@ -1567,11 +1533,27 @@ ERR
 		exit 1;
 	}
 
+	if (CONFIG->{configversion} == 1) {
+		FATAL(<<ERR);
+Your existing Podist configuration is for Podist 0.3 or before. Podist
+version 0.4 requires several changes to your existing config and
+possibly also requires moving files around. Please review the UPGRADING
+file for instructions.
+ERR
+		exit 1;
+	}
+	if (CONFIG->{configversion} > $CONFIG_VERSION) {
+		FATAL(<<ERR);
+Your existing Podist configuration is for a newer version of Podist than
+you're currently running. If this is intentional, please review the
+UPGRADING (and possibly the git logs) file to see what you might need to
+change.
+ERR
+		exit 1;
+	}
+
 	# Untaint the environment
 	$ENV{PATH} = notaint($ENV{PATH});
-
-	# Setup our output directories.
-	setup_dirs();
 
 	# setup the DB
 	$DB = Podist::Database->new(
@@ -1580,21 +1562,13 @@ ERR
 		password => CONFIG->{database}{password}
 	);
 
+	# set up storage
+	$STORAGE = Podist::Storage->new(
+		DB => $DB,
+		config => CONFIG->{storage},
+	);
+
 	return;
-}
-
-sub setup_dirs {
-
-	for my $d (
-		@{CONFIG->{storage}}{
-			qw(pendingmedia playlistedmedia
-				playlists randommedia)
-		})
-	{
-		-d $d
-			or mkpath(notaint($d))
-			or LOGDIE("Could not mkpath($d): $!");
-	}
 }
 
 sub init_logging {
@@ -1619,21 +1593,36 @@ sub setup_config {
 	my $default_config = <<CONF;
 # Once you've reviewed this file, change this to false.
 NotYetConfigured true
+ConfigVersion $CONFIG_VERSION
 DataDir $confdir # e.g., \$HOME/.podist
 
 <storage>
 	PendingMedia      \$HOME/Podist/media-pending
 	UnusableMedia     \$HOME/Podist/media-unusable
-	PlaylistedMedia   \$HOME/Podist/media-listed
+	OriginalMedia     \$HOME/Podist/playlists/original
+	ProcessedMedia    \$HOME/Podist/playlists/processed
+	ArchivedMedia     \$HOME/Podist/archived/original
+	ArchivedProcessed \$HOME/Podist/archived/processed
+
 	Playlists         \$HOME/Podist/playlists
-	ArchivedPlaylists \$HOME/Podist/archived/playlist
-	ArchivedMedia     \$HOME/Podist/archived/media
+	ArchivedPlaylists \$HOME/Podist/archived
+
 	RandomMedia       \$HOME/Podist/playlists/random
 </storage>
 
+<archival>
+	# possible values are yes, no, and speech-only.
+	Processed   speech-only
+</archival>
+
 <feed>
-    BaseURL      http://yourserver/podist/
-    FudgeDates   no
+	BaseURL      http://yourserver/podist/
+	FudgeDates   no
+	<include>
+		Speeches        no
+		Intermissions   yes
+		Leadout         no
+	</include>
 </feed>
 
 <article>
@@ -1785,6 +1774,7 @@ CONF
 		%parse_opts_common,
 	);
 	my %defs = $cg_def->getall;
+	$defs{configversion} = 1; # V1 config did not have this.
 
 	# Yes, in the first-use case, this will be the exact same as the
 	# defaults, but oh well.
@@ -1847,7 +1837,7 @@ sub USER_AGENT() {
 	state $agent;
 	unless ($agent) {
 		$agent = LWP::UserAgent->new(
-			agent => 'Podist/0.3', # space at end: append _agent
+			agent => "Podist/$PODIST_VERSION",
 			env_proxy => 1,
 			keep_alive => 4, # Some podcasts love redirects
 			cookie_jar => { }, # temp only
