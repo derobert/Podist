@@ -1,5 +1,11 @@
 <?xml version="1.0"?>
 <todo version="0.1.20">
+    <note priority="verylow" time="1519759157">
+        Per-feed priority (make episodes of FeedA more likely to go in the playlist than FeedB) in addition to current weighting (e.g., number unplayed)
+    </note>
+    <note priority="verylow" time="1518732981">
+        List more stuff with feeds, like limit
+    </note>
     <note priority="verylow" time="1436920611">
         Parallel download (grab from multiple servers at once)
     </note>
@@ -11,6 +17,9 @@
     </note>
     <note priority="verylow" time="1433315222">
         Web interface
+    </note>
+    <note priority="low" time="1519746182">
+        Store article text, etc. from original feed so can re-add them to the generated feed
     </note>
     <note priority="low" time="1518250138">
         Speech output is truncated. Seems to be from asking it for a given frequency (sample rate). Debian bug #890018. (Could work around by using sox to resample).
@@ -65,14 +74,29 @@
     </note>
     <note priority="medium" time="1433314505">
         Audio processing
+        <note priority="verylow" time="1519715526">
+            Split podcast into chapters (but it turns out no podcasts seem to actually have chapter markers; try: ffprobe -loglevel error -hide_banner  -of json  -show_chapters FILE)
+        </note>
+        <note priority="verylow" time="1519527878">
+            Random items should use same processing code as podcasts instead of a separate program
+        </note>
         <note priority="verylow" time="1518244365">
             Should speech really go in processed? Its not actually processed from other audio, and e.g., a newer version of Festival could make it sound really different. Might want to archive it. Or feed it through (some) audio processing, I suppose.
+        </note>
+        <note priority="low" time="1519721929">
+            Multi-threaded to use all cores
+        </note>
+        <note priority="low" time="1519714321">
+            ffmpeg encode to opus does not seem to support cover art; need to find a way to copy it over into METADATA_BLOCK_PICTURE vorbis comments
         </note>
         <note priority="low" time="1433314988">
             Segment detection &amp; splitting (e.g., would be nice to find Science or Fiction in SGU, split it to its own file)
         </note>
         <note priority="low" time="1433314857">
             Intro/ending trimming
+        </note>
+        <note priority="medium" time="1519720079">
+            FIXME: once processing can change length, fix the length being passed to DB::add_processed in process()
         </note>
         <note priority="medium" time="1433315165">
             Noise removal

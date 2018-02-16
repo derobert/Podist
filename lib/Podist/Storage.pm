@@ -118,8 +118,7 @@ sub save_speech_temp {
 
 	my (undef, undef, $tmp_base) = File::Spec->splitpath($tmp);
 
-	# TODO: When we implement processing, add a _compute_processed_path
-	#       (or maybe _compute_media_path will do it).
+	# TODO: switch to _compute_processed_path
 	my $newfile = $self->_config->{processedmedia} . "/$p_no";
 	-d $newfile || mkdir($newfile) or confess "mkdir($newfile): $!";
 	$newfile .= "/$tmp_base";
@@ -131,6 +130,69 @@ sub save_speech_temp {
 	$self->_safe_move($tmp, $newfile);
 
 	return ($s_no, $newfile);
+}
+
+sub new_processed_temp {
+	my ($self, $suffix) = @_;
+
+	my (undef, $tmp);
+	{
+		# We don't open because otherwise ffmpeg will complain the file
+		# exists, and this is safe since we're not actually working in a
+		# system temp directory.
+		#
+		# Turn off warnings temporarily because File::Temp
+		# unconditionally warns about OPEN=>0. The docs suggest tmpnam
+		# or mktemp instead, but those don't take DIR. So they'd
+		# actually be insecure...
+		#
+		# TODO: Remove if we switch to opusenc, which will probably be
+		#       required to get art copied over.
+		local $^W = 0;
+		(undef, $tmp) = tempfile(
+			'processed.XXXXXX',
+			DIR    => $self->_config->{processedmedia},
+			SUFFIX => $suffix,
+			OPEN   => 0,
+		);
+	}
+	$self->_temps->{$tmp} = 1;
+
+	return $tmp;
+}
+
+sub discard_processed_temp { shift->_discard_temp(@_) }
+
+sub save_processed_temp {
+	my ($self, %opts) = @_;
+
+	defined(my $tmp = $opts{temp})  or croak "temp param required";
+	defined(my $p_no = $opts{playlist_no})
+		or croak "playlist_no param required";
+	defined(my $p_so = $opts{playlist_so})
+		or croak "playlist_so param required";
+	defined(my $pp_so = $opts{proc_part_so})
+		or croak "proc_part_so param required";
+	defined(my $store = $opts{store})
+		or croak "store param required";
+
+	delete $self->_temps->{$tmp}
+		or confess "Tried to save unknown temp $tmp";
+
+	my $dir
+		= $self->_compute_processed_path($store, $p_no, '');
+	-d $dir || mkdir($dir) or confess "mkdir($dir): $!";
+
+	my (undef, undef, $tmp_basename) = File::Spec->splitpath($tmp);
+	$tmp_basename =~ /^processed\.(.+)$/
+		or confess "unexpected temp name: $tmp_basename";
+	my $name = sprintf('%03i_%03i_%s', $p_so, $pp_so, $1);
+	my $newfile = $self->_compute_processed_path($store, $p_no, $name);
+
+	$self->_db->add_processed_part(%opts, proc_part_file => $name);
+	$self->_safe_move($tmp, $newfile);
+
+	return;
 }
 
 sub _discard_temp {
@@ -157,6 +219,21 @@ sub _compute_media_path {
 		defined $p_no or confess "store $store requires a playlist number";
 		return $self->_config->{$k} . "/$p_no/$name";
 	}
+}
+
+sub _compute_processed_path {
+	my ($self, $store, $p_no, $name) = @_;
+
+	'deleted' eq $store
+		and confess "Tried to find the path to a deleted processed file";
+
+	my $k
+		= ('processed' eq $store) ? 'processedmedia'
+		: ('archived-processed' eq $store) ? 'archivedprocessed'
+		:                                    $store;
+	exists $self->_config->{$k} or confess "Unknown media store: $store [$k]";
+
+	return $self->_config->{$k} . "/$p_no/$name";
 }
 
 sub _compute_playlist_path {

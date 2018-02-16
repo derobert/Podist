@@ -238,6 +238,49 @@ sub add_speech {
 	return $s_no;
 }
 
+sub add_processed {
+	my ($self, %opts) = @_;
+
+	defined(my $e_no = $opts{enclosure_no})
+		or croak "enclosure_no required";
+	defined(my $p_no = $opts{playlist_no})  or croak "playlist_no required";
+	defined(my $prof = $opts{profile})      or croak "profile required";
+	defined(my $duration = $opts{duration}) or croak "duration required";
+	defined(my $cputime = $opts{cputime})   or croak "cputime required";
+	defined(my $store = $opts{store})       or croak "store required";
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO processed(
+		  enclosure_no, playlist_no, processed_profile,
+		  processed_duration, processed_cputime, processed_store
+		) VALUES (?, ?, ?, ?, ?, ?)
+	});
+	$sth->execute($e_no, $p_no, $prof, $duration, $cputime, $store);
+
+	my $proc_no = $self->last_insert_id('', '', 'processed', 'processed_no');
+	return $proc_no;
+}
+
+sub add_processed_part {
+	my ($self, %opts) = @_;
+
+	defined(my $proc_no = $opts{processed_no})
+		or confess "processed_no param required";
+	defined(my $pp_so = $opts{proc_part_so})
+		or confess "proc_part_so param required";
+	defined(my $pp_file = $opts{proc_part_file})
+		or confess "proc_part_file param required";
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO processed_parts(
+		  processed_no, proc_part_so, proc_part_file
+		) VALUES (?, ?, ?)
+	});
+	$sth->execute($proc_no, $pp_so, $pp_file);
+
+	return;
+}
+
 sub find_or_add_random {
 	my ($self, $file) = @_;
 
@@ -337,6 +380,73 @@ sub _build_uuid {
 	) or die "No rows in podist_instance?";
 
 	return $row[0];
+}
+
+sub get_playlist_list {
+	my ($self, $omit_archived) = @_;
+
+	my $query = q{SELECT playlist_no FROM playlists};
+	$query .= q{ WHERE playlist_archived IS NULL} if $omit_archived;
+
+	$self->selectcol_arrayref($query);
+}
+
+sub get_processing_info {
+	my ($self, $playlist) = @_;
+
+	# we use min(article_no) instead of article_when (or a combination
+	# of the two) because we want this to be stable. Hypothetically, a
+	# new fetch could add a new, lower article_when. But article_no
+	# always increases, it's the order they were added to the DB.
+	#
+	# TODO: Consider what to do about a.article_use
+	my $query = <<SQL;
+SELECT
+    e.playlist_so, e.enclosure_no, e.enclosure_file, e.enclosure_time,
+    e.enclosure_store,
+    p.processed_no, p.processed_profile, p.processed_duration,
+    p.processed_store, pp.proc_part_so, pp.proc_part_file,
+    f.feed_no, f.feed_name, f.feed_proc_profile
+  FROM
+    enclosures e
+    LEFT JOIN processed p ON (e.enclosure_no = p.enclosure_no)
+    LEFT JOIN processed_parts pp ON (p.processed_no = pp.processed_no)
+    JOIN (
+      SELECT enclosure_no, MIN(article_no) AS min_article_no
+        FROM articles_enclosures
+       GROUP BY enclosure_no ) AS fa ON (e.enclosure_no = fa.enclosure_no)
+    JOIN articles a ON (fa.min_article_no = a.article_no)
+    JOIN feeds f ON (a.feed_no = f.feed_no)
+  WHERE e.playlist_no = ?
+  ORDER BY e.playlist_so, p.processed_no, pp.proc_part_so
+SQL
+
+	my $sth = $self->prepare($query);
+	$sth->execute($playlist);
+
+	my @res;
+	while (my $row = $sth->fetchrow_hashref) {
+		# this mess so wants for DBIC... it's on the todo list.
+		if (@res && $res[-1]{enclosure_no} == $row->{enclosure_no}) {
+			push @{$row->{processed_parts}}, {
+				proc_part_so   => $row->{proc_part_sp},
+				proc_part_file => $row->{proc_part_file},
+			};
+		} else {
+			my ($pp_so, $pp_file)
+				= delete @{$row}{qw(proc_part_so proc_part_file)};
+			if (defined $pp_so) {
+				$row->{processed_parts}
+					= [{proc_part_so => $pp_so, proc_part_file => $pp_file}];
+			} else {
+				$row->{processed_parts} = [ ];
+			}
+			push @res, $row;
+		}
+	}
+
+	$sth->finish;
+	return \@res
 }
 
 sub unarchived_playlist_info {

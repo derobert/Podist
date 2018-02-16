@@ -30,6 +30,7 @@ use File::Temp qw(tempfile);
 use Getopt::Long;
 use IPC::Run3;
 use List::MoreUtils qw(pairwise);
+use List::Util qw(sum);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
@@ -42,6 +43,7 @@ use Text::CSV;
 use URI::Escape qw(uri_escape);
 use XML::FeedPP;
 use Carp qw(longmess);
+use Data::Dump qw(pp);
 
 BEGIN { -t STDOUT and $Pod::Usage::Formatter = 'Pod::Text::Termcap'; }
 use Pod::Usage;
@@ -49,6 +51,8 @@ use Pod::Usage;
 use FindBin;
 use lib "$FindBin::RealBin/lib";
 use Podist::Database;
+use Podist::Misc qw(inherit_proc_profiles);
+use Podist::Processor;
 use Podist::Storage;
 
 use feature 'state';
@@ -145,6 +149,7 @@ sub register_commands {
 			all_playlists => \&all_playlists,
 			archive   => \&archive,
 			
+			process   => \&process,
 			feed      => \&feed,
 
 			status    => \&status,
@@ -679,12 +684,13 @@ sub list {
 				outputWidth => 72,
 				headingText => 'Feeds'
 		});
-		$tab->setCols('Enabled', 'Feed Name', 'Feed #');
+		$tab->setCols('Enabled', 'Feed Name', 'Feed #', 'Proc.');
 		$tab->addRow(@$_) foreach @{$DB->selectall_arrayref(<<QUERY)};
 SELECT
 	CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END, 
     feed_name,
-	feed_no
+	feed_no,
+	feed_proc_profile
   FROM feeds
   ORDER BY feed_enabled DESC, feed_name ASC
 QUERY
@@ -1381,6 +1387,65 @@ sub archive {
 	}
 }
 
+sub process {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+
+	my $redo = 0;
+	$go->getoptions(
+		'redo|r' => \$redo,
+	) or pod2usage(2);
+
+	$redo and LOGDIE("Sorry, Podist process --redo not implemented yet");
+	#TODO: handle 'Playlist 123', not just '123'. Like archive.
+	my @playlists = @ARGV ? @ARGV : @{$DB->get_playlist_list(1)};
+
+	my %processors;
+	my $tmp_maker = sub { $STORAGE->new_processed_temp(shift) };
+	foreach my $playlist_no (@playlists) {
+		my $enclosures_info = $DB->get_processing_info($playlist_no);
+		foreach my $info (@$enclosures_info) {
+			if ($info->{processed_no}) {
+				TRACE("Skipping already-processed $info->{enclosure_no}");
+				next;
+			}
+			my $profile = $info->{feed_proc_profile};
+			exists CONFIG->{processing}{profile}{$profile}
+				or LOGDIE(qq{Feed #$info->{feed_no} ($info->{feed_name}) has unknown profile "$info->{feed_proc_profile}"});
+			$processors{$profile} //= Podist::Processor->new(
+				NC_temp_maker => $tmp_maker,
+				%{CONFIG->{processing}{profile}{$profile}});
+			INFO(qq{Processing enclosure $info->{enclosure_no} from Playlist $playlist_no#$info->{playlist_so}});
+			my $cpu_before = sum(times);
+			my $outfiles = $processors{$profile}->process(
+				$STORAGE->get_enclosure_path($info->{enclosure_no}));
+			my $cpu_after = sum(times);
+			my $cputime = $cpu_after - $cpu_before;
+			my $duration = $info->{enclosure_time};    # FIXME
+			my $proc_no = $DB->add_processed(
+				enclosure_no => $info->{enclosure_no},
+				playlist_no  => $playlist_no,
+				profile      => $profile,
+				duration     => $duration,
+				cputime      => $cputime,
+				store        => 'processed'
+			);
+			TRACE("Got files @$outfiles");
+			for (my $i = 0; $i < @$outfiles; ++$i) {
+				$STORAGE->save_processed_temp(
+					temp         => $outfiles->[$i],
+					playlist_no  => $playlist_no,
+					playlist_so  => $info->{playlist_so},
+					processed_no => $proc_no,
+					proc_part_so => $i,
+					store        => 'processed',
+				);
+			}
+			DEBUG("Finished $info->{enclosure_no} in ${cputime}s, @{[ $duration/$cputime ]}x");
+		}
+	}
+}
+
 sub feed {
 	my $feed = XML::FeedPP::RSS->new(
 		title       => 'Podist RSS Export',
@@ -1505,6 +1570,9 @@ sub setup {
 	*CONFIG = sub() { $config };
 
 	init_logging();
+
+	# more config setup, but with logging available
+	inherit_proc_profiles(CONFIG->{processing}{profile}); # modifies
 
 	# get terminal width
 	$TERM_COLS  = 0 + notaint($ENV{COLUMNS} // 0);
@@ -1828,7 +1896,6 @@ ERR
 		exit 1;
 	}
 
-
 	return $config;
 }
 
@@ -1986,6 +2053,17 @@ database.
 Currently, the only effect on Podist operation is that archived
 playlists are not included in the generated feed (feed.xml in the
 playlist directory).
+
+=head2 B<process> [ --redo ] [Playlist1...]
+
+Runs configured audio processing. By default, processes all non-archived
+playlists and only processes an audio file if there isn't already a
+processed version. You can pass one or more playlists to limit
+processing to just those playlists.
+
+The B<--redo> option will re-process files even if there is already a
+processed version. This can be useful after changing the audio
+processing configuration, for example.
 
 =head2 B<feed>
 
