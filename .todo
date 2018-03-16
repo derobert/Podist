@@ -117,6 +117,9 @@
             done
         </comment>
     </note>
+    <note priority="high" time="1521164914">
+        Has enclosure/processed been split for little reason? Seems it probably has...
+    </note>
     <note priority="high" time="1433372716" done="1433480610">
         Use/don't use flag for articles
         <note priority="medium" time="1433372737" done="1433480606">

@@ -1361,6 +1361,15 @@ sub archive {
 		return;
 	}
 
+	my $proc_sub
+		= CONFIG->{archival}{processed}
+		? sub { $STORAGE->archive_processed(@_) }
+		: sub { $STORAGE->delete_processed(@_) };
+	my $speech_sub
+		= CONFIG->{archival}{speech}
+		? sub { $STORAGE->archive_speech(@_) }
+		: sub { $STORAGE->delete_speech(@_) };
+
 	foreach my $arg (@ARGV) {
 		my $p_no;
 		if ($arg =~ /^[0-9]+$/) {
@@ -1373,9 +1382,11 @@ sub archive {
 		}
 
 		TRACE("Archiving media for playlist $p_no");
-		$STORAGE->archive_original($_)
-			foreach @{$DB->get_playlist_enclosures($p_no)};
-		$STORAGE->cleanup_original($p_no);
+		foreach my $e_no (@{$DB->get_playlist_enclosures($p_no)}) {
+			$proc_sub->($e_no);
+			$STORAGE->archive_original($e_no);
+		}
+		$speech_sub->($_) foreach @{$DB->get_playlist_speeches($p_no)};
 
 		TRACE("Archiving playlist $p_no");
 		$STORAGE->archive_playlist($p_no);
@@ -1383,6 +1394,12 @@ sub archive {
 		# we commit after each archival, because a rollback wouldn't move
 		# the files back.
 		$DB->commit;
+		
+		# get rid of empty dirs; these will die if not empty
+		# (indicating a bug of some sort)
+		$STORAGE->cleanup_original($p_no);
+		$STORAGE->cleanup_processed($p_no);
+
 		INFO("Archived playlist $p_no");
 	}
 }
@@ -1679,8 +1696,9 @@ DataDir $confdir # e.g., \$HOME/.podist
 </storage>
 
 <archival>
-	# possible values are yes, no, and speech-only.
-	Processed   speech-only
+	# media is always yes
+	Processed   no
+	Speech      yes
 </archival>
 
 <feed>

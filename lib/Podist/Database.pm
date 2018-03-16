@@ -167,6 +167,14 @@ sub get_playlist_enclosures {
 	}, {}, $p_no);
 }
 
+sub get_playlist_speeches {
+	my ($self, $p_no) = @_;
+
+	$self->selectcol_arrayref(q{
+		SELECT speech_no FROM speeches WHERE playlist_no = ?
+	}, {}, $p_no);
+}
+
 sub add_playlist { 
 	my ($self, $template) = @_;
 
@@ -238,6 +246,38 @@ sub add_speech {
 	return $s_no;
 }
 
+sub get_speech_storage {
+	# FIXME: ridiculously close to other get_*_storage... need a real
+	# ORM.
+	my ($self, $s_no) = @_;
+	wantarray or croak "get_speech_storage returns a list";
+
+	my $sth = $self->prepare_cached(q{
+		SELECT speech_store, playlist_no, speech_file
+		  FROM speeches WHERE speech_no = ?
+	});
+	$sth->execute($s_no);
+	my ($store, $p_no, $name) = $sth->fetchrow_array
+		or confess "speech $s_no not found";
+	$sth->finish;
+
+	return ($store, $p_no, $name);
+}
+
+sub update_speech_storage {
+	# FIXME: damn same as update_*_storage
+	my ($self, $s_no, $store) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		UPDATE speeches
+		  SET speech_store = ?
+		  WHERE speech_no = ?
+	});
+	$sth->execute($store, $s_no);
+
+	return;
+}
+
 sub add_processed {
 	my ($self, %opts) = @_;
 
@@ -277,6 +317,40 @@ sub add_processed_part {
 		) VALUES (?, ?, ?)
 	});
 	$sth->execute($proc_no, $pp_so, $pp_file);
+
+	return;
+}
+
+sub get_processed_parts {
+	my ($self, $e_no) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		SELECT
+		    p.processed_no, p.playlist_no, p.processed_store,
+		    pp.proc_part_file
+		  FROM
+		    processed p JOIN processed_parts pp ON (
+		      p.processed_no = pp.processed_no
+		    )
+		  WHERE p.enclosure_no = ?
+	});
+	$sth->execute($e_no);
+
+	my $res = $sth->fetchall_arrayref({});
+	$sth->finish;
+
+	return $res;
+}
+
+sub update_processed_storage {
+	my ($self, $e_no, $store) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		UPDATE processed
+		  SET processed_store = ?
+		  WHERE enclosure_no = ?
+	});
+	$sth->execute($store, $e_no);
 
 	return;
 }

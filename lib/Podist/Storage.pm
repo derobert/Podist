@@ -118,18 +118,48 @@ sub save_speech_temp {
 
 	my (undef, undef, $tmp_base) = File::Spec->splitpath($tmp);
 
-	# TODO: switch to _compute_processed_path
-	my $newfile = $self->_config->{processedmedia} . "/$p_no";
-	-d $newfile || mkdir($newfile) or confess "mkdir($newfile): $!";
-	$newfile .= "/$tmp_base";
+	my $dir
+		= $self->_compute_processed_path('processed', $p_no, '');
+	-d $dir || mkdir($dir) or confess "mkdir($dir): $!";
+
+	my $newfile
+		= $self->_compute_processed_path('processed', $p_no, $tmp_base);
 
 	my $s_no = $self->_db->add_speech(%opts, 
 		store => 'processed',
-		file => $newfile,
+		file => $tmp_base,
 	);
 	$self->_safe_move($tmp, $newfile);
 
 	return ($s_no, $newfile);
+}
+
+sub delete_speech {
+	my ($self, $speech_no) = @_;
+
+	die("delete_speech not yet implemented"); # TODO: implement
+}
+
+sub archive_speech {
+	# FIXME: bloody similar to archive_original ...
+	my ($self, $speech_no) = @_;
+
+	my ($oldstore, $p_no, $name)
+		= $self->_db->get_speech_storage($speech_no);
+
+	my $old = $self->_compute_processed_path($oldstore, $p_no, $name);
+	my $dir
+		= $self->_compute_processed_path('archived-processed', $p_no, '');
+	my $new
+		= $self->_compute_processed_path('archived-processed', $p_no, $name);
+	
+	-d $dir || mkdir($dir)
+		or confess "mkdir($dir): $!";
+
+	$self->_db->update_speech_storage($speech_no, 'archived-processed');
+	$self->_safe_move($old, $new);    # if dies, DB rolls back.
+
+	return
 }
 
 sub new_processed_temp {
@@ -191,6 +221,36 @@ sub save_processed_temp {
 
 	$self->_db->add_processed_part(%opts, proc_part_file => $name);
 	$self->_safe_move($tmp, $newfile);
+
+	return;
+}
+
+sub delete_processed {
+	my ($self, $e_no) = @_;
+	foreach my $info (@{$self->_db->get_processed_parts($e_no)}) {
+		my $path = $self->_compute_processed_path($info->{processed_store},
+			$info->{playlist_no}, $info->{proc_part_file});
+		TRACE("Deleting processed file $path");
+		unlink($path);
+	}
+
+	$self->_db->update_processed_storage($e_no, 'deleted');
+}
+
+sub archive_processed {
+	my ($self, $e_no) = @_;
+
+	die("archive_processed not yet implemented"); # TODO: implement
+}
+
+sub cleanup_processed {
+	my ($self, $p_no) = @_;
+
+	my $path = $self->_compute_processed_path('processed', $p_no, '');
+
+	# rmdir only removes empty dirs, so safe.
+	rmdir($path)
+		or confess "rmdir($path): $!";
 
 	return;
 }
