@@ -320,6 +320,14 @@ sub get_enclosure_path {
 		$self->_db->get_enclosure_storage($e_no));
 }
 
+sub get_processed_path {
+	my ($self, $partinfo) = @_;
+
+	return $self->_compute_processed_path(
+		@$partinfo{qw(processed_store playlist_no proc_part_file)}
+	);
+}
+
 sub unusable_pending {
 	my ($self, $e_no) = @_;
 	my ($store, $p_no, $name) = $self->_db->get_enclosure_storage($e_no);

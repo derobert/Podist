@@ -1119,7 +1119,11 @@ sub find_mediafile {
 	$opts{type} // LOGDIE("find_mediafile w/o type");
 
 	if ('enclosure' eq $opts{type}) {
-		return $STORAGE->get_enclosure_path($opts{enclosure_no});
+		if ($opts{part}) {
+			return $STORAGE->get_processed_path($opts{part});
+		} else {
+			return $STORAGE->get_enclosure_path($opts{enclosure_no});
+		}
 	} elsif ('randommedia' eq $opts{type}) {
 		return notaint(CONFIG->{storage}{randommedia} . "/$opts{file}");
 	} else {
@@ -1483,6 +1487,14 @@ sub feed {
 		'speech' ne $enc->{type} || $include->{speech}
 			or next;    # TODO: not yet implemented
 
+		my $parts
+			= ('enclosure' eq $enc->{type})
+			? $DB->get_processed_parts($enc->{enclosure_no})
+			: [];
+
+		0 == @$parts || 1 == @$parts
+			or LOGDIE("TODO: implement multiple parts from processing");
+
 		my $title = sprintf('[%03i-%02i] %s (%s)',
 			$enc->{playlist_no}, $enc->{playlist_so},
 			($enc->{article_title} // $enc->{enclosure_file}),
@@ -1521,6 +1533,7 @@ sub feed {
 			type => $enc->{type},
 			file => $enc->{enclosure_file},
 			enclosure_no => $enc->{enclosure_no},
+			part => $parts->[0],
 		);
 		my $size = -s $file;
 		$item->set('source@url', $enc->{feed_url}) if defined $enc->{feed_url};
