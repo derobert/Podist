@@ -28,19 +28,17 @@ coerce 'Podist::LU',
 		die "Unparsable volume: $_";
 	};
 
-subtype 'Podist::Bitrate'
-	=> as 'Int'
-	=> where { $_ >= 6_000 && $_ <= 510_000 } # opus limits
-	=> message { 'Bitrate must be between 6k and 510k' };
+subtype 'Podist::Quality'
+	=> as 'Num';
 
-coerce 'Podist::Bitrate',
+coerce 'Podist::Quality',
 	from 'Str',
 	via {
-		/^[0-9]+$/
+		/^[0-9.]+$/
 			and return 0+$_;
-		/^([0-9]+)\s*k$/i
+		/^([0-9.]+)\s*k$/i
 			and return 1000*$1;
-		die "Unparsable bitrate $_";
+		die "Unparsable quality $_";
 	};
 #>>>
 1;

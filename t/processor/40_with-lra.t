@@ -42,7 +42,7 @@ my $proc = new_ok(
 		loudness      => TARG_loudness,
 		loudnessrange => TARG_range,
 		encoder       => 'opus',
-		bitrate       => 96_000,
+		encodequality => 96_000,
 		NC_temp_maker => \&temp_maker,
 	],
 	'Podist::Processor'

@@ -48,11 +48,11 @@ has _encoder => (
 	isa      => 'Str',
 );
 
-has _bitrate => (
-	init_arg => 'bitrate',
+has _quality => (
+	init_arg => 'encodequality',
 	required => 1,
 	is       => 'ro',
-	isa      => 'Podist::Bitrate',
+	isa      => 'Podist::Quality',
 	coerce   => 1
 );
 
@@ -78,11 +78,36 @@ has _ffmpeg => (
 		sub { [qw(ffmpeg -nostdin -hide_banner -nostats -loglevel info)] },
 );
 
+my %CODECS = (
+	opus => {
+		# opus basically doesn't do 44.1 kHz
+		ff_args => [ qw(-vn -c:a libopus -ar 48000 -vbr on) ],
+		qual_name => 'VBR bitrate',
+		qual_arg => '-b:a',
+		qual_min => 6_000,
+		qual_max => 510_000,
+		file_ext => '.opus',
+	},
+	vorbis => {
+		ff_args => [ qw(-vn -c:a libvorbis) ],
+		qual_name => 'quality',
+		qual_arg => '-q:a',
+		qual_min => -1,
+		qual_max => 10,
+		file_ext => '.ogg',
+	},
+);
+
 sub BUILD {
 	my $self = shift;
 
-	'opus' eq $self->_encoder
-		or die "Currently only Opus is supported";
+	my $info = $CODECS{$self->_encoder}
+		or die "Unknown codec: @{[$self->_encoder]}";
+
+	$self->_quality >= $info->{qual_min}
+		or die "Quality @{[$self->_quality]} below min ($info->{qual_min})";
+	$self->_quality <= $info->{qual_max}
+		or die "Quality @{[$self->_quality]} above max ($info->{qual_max})";
 
 	return;
 }
@@ -92,7 +117,7 @@ sub process {
 
 	my $info = $self->_get_bs1770_info($infile)
 		or die "failed to get ITU BS.1770 info";
-	my $outfile = $self->_temp->('.opus');
+	my $outfile = $self->_temp->($CODECS{$self->_encoder}{file_ext});
 
 	# unfortunately, loudnorm does not permit LRA>20, so if we're trying
 	# not to limit LRA, that could be a problem. If we're lowering the
@@ -121,10 +146,8 @@ sub process {
 		@{$self->_ffmpeg},
 		-i          => $infile,
 		'-filter:a' => $self->_get_filter($mode, $info),
-		'-c:a'      => 'libopus',
-		-ar         => 48_000,            # opus basically doesn't do 44.1
-		-vbr        => 'on',
-		'-b:a'      => $self->_bitrate,
+		@{$CODECS{$self->_encoder}{ff_args}},
+		$CODECS{$self->_encoder}{qual_arg} => $self->_quality,
 		$outfile
 	], \undef, \$stdout, \$stderr;
 	if ($?) {
