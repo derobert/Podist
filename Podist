@@ -85,7 +85,7 @@ my %SUFFIX_MAP = (
 );
 my %MIME_MAP = (
 	mp3  => 'audio/mpeg',
-	ogg  => 'audio/ogg',
+	ogg  => 'audio/ogg; codecs=vorbis',
 	opus => 'audio/ogg; codecs=opus'
 );
 
@@ -1560,15 +1560,15 @@ sub feed {
 		} else {
 			LOGCONFESS("Unknown item type: $enc->{type}.");
 		}
-		my $mime;
-		$enc->{enclosure_file} =~ /\.(\S{3,4})$/
-			and $mime = $MIME_MAP{lc $1};
 		my $file = find_mediafile(
 			type => $enc->{type},
 			file => $enc->{enclosure_file},
 			enclosure_no => $enc->{enclosure_no},
 			part => $parts->[0],
 		);
+		my $mime;
+		$file =~ /\.(\S{3,4})$/
+			and $mime = $MIME_MAP{lc $1};
 		my $size = -s $file;
 		$item->set('source@url', $enc->{feed_url}) if defined $enc->{feed_url};
 		my $urlextra
