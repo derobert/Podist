@@ -575,8 +575,8 @@ QUERY
 			outputWidth => 72,
 			headingText => 'New Hours per Day over Various Time Periods'
 	});
-	$tab->setCols(qw(Feed 2d 7d 30d 90d 4ever));
-	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
+	$tab->setCols(qw(Feed 2d 7d 30d 90d 4ever Life));
+	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever Life));
 	my $sth = $DB->prepare(<<QUERY);
 WITH
   feed_unique_enclosures AS (
@@ -617,10 +617,18 @@ SELECT
       SUM(
         e.enclosure_time
       )/((
+        strftime('%s')-MIN(fue.first_when)
+      )/24)
+    ELSE 0
+    END AS "4ever",
+    CASE WHEN f.feed_enabled = 1 THEN
+      SUM(
+        e.enclosure_time
+      )/((
         MAX(fue.first_when)-MIN(fue.first_when)
       )/24)
     ELSE 0
-    END AS "4ever"
+    END AS "Life"
   FROM
     feeds f
     LEFT JOIN feed_unique_enclosures fue ON (f.feed_no = fue.feed_no)
