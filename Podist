@@ -578,26 +578,38 @@ QUERY
 	$tab->setCols(qw(Feed 2d 7d 30d 90d 4ever));
 	$tab->alignCol($_, 'right') foreach(qw(2d 30d 90d 4ever));
 	my $sth = $DB->prepare(<<QUERY);
+WITH
+  feed_unique_enclosures AS (
+    SELECT
+        a.feed_no, e.enclosure_no, MIN(a.article_when) as first_when
+      FROM
+        articles a
+        JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
+        JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
+      WHERE
+        a.article_use = 1 AND e.enclosure_use = 1
+      GROUP BY a.feed_no, e.enclosure_no
+  )
 SELECT
     f.feed_enabled,
     CASE WHEN f.feed_enabled = 0 THEN 'OFF - ' ELSE '' END || f.feed_name,
     SUM(
-      CASE WHEN a.article_when + 2*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN fue.first_when + 2*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(2*3600) AS "48h",
     SUM(
-      CASE WHEN a.article_when + 7*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN fue.first_when + 7*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(7*3600) AS "168h",
     SUM(
-      CASE WHEN a.article_when + 30*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN fue.first_when + 30*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(30*3600) AS "720h",
     SUM(
-      CASE WHEN a.article_when + 90*86400 >= 0+strftime('%s', 'now')
+      CASE WHEN fue.first_when + 90*86400 >= 0+strftime('%s', 'now')
         THEN e.enclosure_time
         ELSE 0
       END)/(90*3600) AS "2160h",
@@ -605,17 +617,16 @@ SELECT
       SUM(
         e.enclosure_time
       )/((
-        MAX(a.article_when)-MIN(a.article_when)
+        MAX(fue.first_when)-MIN(fue.first_when)
       )/24)
     ELSE 0
     END AS "4ever"
   FROM
     feeds f
-    LEFT JOIN articles a ON (f.feed_no = a.feed_no AND a.article_use = 1)
-    LEFT JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
-    LEFT JOIN enclosures e ON (
-      ae.enclosure_no = e.enclosure_no AND e.enclosure_use = 1
-    )
+    LEFT JOIN feed_unique_enclosures fue ON (f.feed_no = fue.feed_no)
+    LEFT JOIN enclosures e ON (fue.enclosure_no = e.enclosure_no)
+  WHERE
+    f.feed_enabled = 1
   GROUP BY f.feed_no
   HAVING
     f.feed_enabled = 1
