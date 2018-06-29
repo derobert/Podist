@@ -533,17 +533,32 @@ QUERY
 			outputWidth => 72,
 			headingText => 'Overall Summary by Playlisted Status'
 	});
-	$tab->setCols('Playlisted?', 'Casts', 'Hours', 'Days', 'Years', 'Oldest');
+	$tab->setCols('Status', 'Casts', 'Hours', 'Days', 'Years', 'Oldest');
 	my $summaries = $DB->selectall_arrayref(<<QUERY);
 SELECT
-    CASE WHEN playlist_no IS NULL THEN 'Pending' ELSE 'Already' END,
-    COUNT(enclosure_no),
-    SUM(enclosure_time),
-    MIN(earliest_article_when)
+    CASE WHEN ue.playlist_no IS NULL THEN
+      'Pending'
+    ELSE
+      CASE WHEN p.playlist_archived IS NULL THEN
+        'Playlisted'
+      ELSE
+        'Archived'
+      END
+    END AS status,
+    COUNT(ue.enclosure_no),
+    SUM(ue.enclosure_time),
+    MIN(ue.earliest_article_when)
   FROM
-    usable_enclosures
-  GROUP BY CASE WHEN playlist_no IS NULL THEN 0 ELSE 1 END
-  ORDER BY 1 ASC
+    usable_enclosures ue
+    LEFT JOIN playlists p ON (ue.playlist_no = p.playlist_no )
+  GROUP BY status
+  ORDER BY
+    CASE status
+      WHEN 'Playlisted' THEN 1
+      WHEN 'Pending' THEN 2
+      WHEN 'Archived' THEN 3
+      ELSE 4
+    END ASC
 QUERY
 	my @total = ('TOTAL');
 	my $sum_add_row = sub {

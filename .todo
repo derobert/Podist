@@ -42,8 +42,11 @@
             example: get_*_storage returning a list of values (and all the code duplication there)
         </note>
     </note>
-    <note priority="low" time="1516807704">
+    <note priority="low" time="1516807704" done="1530250399">
         Status: add sub-item to already playlisted for unarchived
+        <comment>
+            Added to summary.
+        </comment>
     </note>
     <note priority="low" time="1434066868" done="1445791741">
         Add oldest unplaylisted to status
