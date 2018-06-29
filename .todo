@@ -149,6 +149,9 @@
     </note>
     <note priority="veryhigh" time="1433480122">
         Desperately need basic test suite. (Do the database migrations work? Who knows...)
+        <note priority="low" time="1530249915">
+            Can actually test hours/day and other stats to maybe someday be confident they're right.
+        </note>
         <note priority="high" time="1518160516">
             Probably can use git-worktree to check out old versions to test migration between each DB version.
         </note>
