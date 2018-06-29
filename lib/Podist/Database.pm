@@ -70,7 +70,7 @@ sub find_article {
 sub add_article {
 	my ($self, %opts) = @_;
 	$opts{feed}  =~ /^\d+$/       or croak "Bad feed number";
-	$opts{when}  =~ /^\d+$/       or croak "Bad when";
+	$opts{when}  =~ /^\d+$/       or croak "Bad when: $opts{when}";
 	$opts{fetch} =~ /^\d+$/       or croak "Bad fetch number";
 
 	# default to true, convert perl truth to strict 0/1 truth.
