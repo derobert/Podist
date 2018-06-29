@@ -18,6 +18,9 @@
     <note priority="verylow" time="1433315222">
         Web interface
     </note>
+    <note priority="low" time="1530244001">
+        Support podcasts before the Unix epoch (such as BBC Reith Lectures). Let *_when be negative.
+    </note>
     <note priority="low" time="1519746182">
         Store article text, etc. from original feed so can re-add them to the generated feed
     </note>
@@ -106,6 +109,9 @@
         </note>
         <note priority="medium" time="1433314592">
             Compander
+        </note>
+        <note priority="high" time="1530243941">
+            Add formats other than Opus. Opus is causing my phone to lag badly whenever starting BeyondPod, or switching back to it, etc. Maybe on download too.
         </note>
         <note priority="high" time="1433314559">
             ReplayGain
