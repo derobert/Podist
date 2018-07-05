@@ -96,6 +96,15 @@ my %CODECS = (
 		qual_max => 10,
 		file_ext => '.ogg',
 	},
+	'lame-vbr' => {
+		# ffmpeg seems like it might manage to copy cover art for mp3
+		ff_args => [ qw(-c:a libmp3lame -c:v copy -compression_level 0 -id3v2_version 4 ) ],
+		qual_name => 'quality',
+		qual_arg => '-q:a',
+		qual_min => 0,
+		qual_max => 9.999,
+		file_ext => '.mp3',
+	},
 );
 
 sub BUILD {
