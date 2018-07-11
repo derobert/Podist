@@ -658,7 +658,12 @@ SELECT
     OR "720h" > 0
     OR "2160h" > 0
   ORDER BY
-    f.feed_enabled DESC, "4ever" DESC
+    f.feed_enabled DESC,
+    CASE WHEN "48h" > 0 THEN 0 ELSE 1 END,
+    CASE WHEN "168h" > 0 THEN 0 ELSE 1 END,
+    CASE WHEN "720h" > 0 THEN 0 ELSE 1 END,
+    CASE WHEN "2160h" > 0 THEN 0 ELSE 1 END,
+    f.feed_name
 QUERY
 	$sth->execute;
 	@total = (0)x($sth->{NUM_OF_FIELDS}-2);
