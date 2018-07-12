@@ -648,8 +648,6 @@ SELECT
     feeds f
     LEFT JOIN feed_unique_enclosures fue ON (f.feed_no = fue.feed_no)
     LEFT JOIN enclosures e ON (fue.enclosure_no = e.enclosure_no)
-  WHERE
-    f.feed_enabled = 1
   GROUP BY f.feed_no
   HAVING
     f.feed_enabled = 1
