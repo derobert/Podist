@@ -3,6 +3,7 @@ use Moose;
 use namespace::autoclean;
 
 use Carp qw(croak confess carp cluck);
+use File::Copy qw(move);
 use File::Path qw(mkpath);
 use File::Temp qw(tempfile);
 use File::Spec;
@@ -503,7 +504,7 @@ sub _safe_move {
 	# Unfortunately, there is no renameat2 in Perl. Guess could call it
 	# via syscall someday.
 	-e $dst and confess "rename $src -> $dst: destination already exists";
-	rename($src, $dst) or confess "rename($src, $dst): $!";
+	move($src, $dst) or confess "move($src, $dst): $!";
 }
 
 sub DEMOLISH {
