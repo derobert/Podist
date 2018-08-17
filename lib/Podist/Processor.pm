@@ -2,7 +2,7 @@ package Podist::Processor;
 use Moose;
 use Podist::Types;
 use Log::Log4perl;
-use IPC::Run3 qw(run3);
+use IPC::Run qw(run);
 use JSON::MaybeXS qw(decode_json);
 use Data::Dump qw(pp);
 use Carp;
@@ -75,7 +75,15 @@ has _ffmpeg => (
 	required => 1,
 	is       => 'ro',
 	default =>
-		sub { [qw(ffmpeg -nostdin -hide_banner -nostats -loglevel info)] },
+		sub { [qw(ffmpeg -nostdin -hide_banner -nostats)] },
+);
+
+has _ffprobe => (
+	init_arg => undef,
+	required => 1,
+	is       => 'ro',
+	default =>
+		sub { [qw(ffprobe -hide_banner)] },
 );
 
 my %CODECS = (
@@ -150,16 +158,49 @@ sub process {
 	}
 
 	my ($stdout, $stderr);
-	$self->_logger->debug("Sending normalized to $outfile");
-	run3 [
-		@{$self->_ffmpeg},
-		-i          => $infile,
-		'-filter:a' => $self->_get_filter($mode, $info),
-		@{$CODECS{$self->_encoder}{ff_args}},
-		$CODECS{$self->_encoder}{qual_arg} => $self->_quality,
-		$outfile
-	], \undef, \$stdout, \$stderr;
-	if ($?) {
+
+	# if we have mixed mono/stereo, the only way I found to make this
+	# work is convert everything to stereo. Avoid if possible since
+	# that's space-inefficient and also loses any cover art.
+	my $run_ok;
+	if ($info->{mixed_layouts}) {
+		$self->_logger->debug("Sending mixed-layout normalized to $outfile");
+		$run_ok = run(
+			[
+				@{$self->_ffmpeg},
+				-loglevel   => 'warning',
+				-i          => $infile,
+				-map 		=> 'a:',
+				'-filter:a'	=> 'aeval=val(0)|val(nb_in_channels-1):c=stereo',
+				'-c:a'      => 'pcm_s16le',
+				-f			=> 'nut',
+				'pipe:'
+			], q{|}, [
+				@{$self->_ffmpeg},
+				-loglevel   => 'info',
+				-f			=> 'nut',
+				-i			=> 'pipe:',
+				'-filter:a' => $self->_get_filter($mode, $info),
+				@{$CODECS{$self->_encoder}{ff_args}},
+				$CODECS{$self->_encoder}{qual_arg} => $self->_quality,
+				$outfile
+			], \$stdout, \$stderr
+		);
+	} else {
+		$self->_logger->debug("Sending single-layout normalized to $outfile");
+		$run_ok = run(
+			[
+				@{$self->_ffmpeg},
+				-loglevel   => 'info',
+				-i          => $infile,
+				'-filter:a' => $self->_get_filter($mode, $info),
+				@{$CODECS{$self->_encoder}{ff_args}},
+				$CODECS{$self->_encoder}{qual_arg} => $self->_quality,
+				$outfile
+			], \undef, \$stdout, \$stderr
+		);
+	}
+	unless ($run_ok) {
 		$self->_logger->error("ffmpeg exited status $?");
 		$self->_logger->error("ffmpeg stdout: $stdout");
 		$self->_logger->error("ffmpeg stderr: $stderr");
@@ -171,6 +212,7 @@ sub process {
 		$self->_last_process_info({}); # none from volume filter
 	}
 	$self->_last_process_info->{MODE} = $mode;
+	$self->_last_process_info->{mixed_layouts} = $info->{mixed_layouts};
 	$self->_logger->debug(
 		{filter => \&Data::Dump::pp, value => $self->_last_process_info});
 
@@ -202,17 +244,68 @@ sub _get_filter {
 
 sub _get_bs1770_info {
 	my ($self, $file) = @_;
+	my ($run_ok, $stdout, $stderr);
+
+	# Check if we need to work around an MP3 file that contains both
+	# mono and stereo frames. That's apparently a thing. That causes
+	# loudnorm to re-init and do weird things.
+	$self->_logger->debug("Checking for mono/stereo mix in $file");
+	$run_ok = run(
+		[
+			@{$self->_ffprobe},
+			-loglevel       => 'warning',
+			-select_streams => 'a',
+			-show_entries   => 'frame=channels',
+			-of             => 'csv',
+			-i              => $file,
+		], q{|}, [ qw(uniq) ], q{|}, [ qw(wc -l) ],
+		\$stdout, \$stderr
+	);
+	unless ($run_ok) {
+		$self->_logger->error("ffprobe exited status $?");
+		$self->_logger->error("ffprobe stderr: $stderr");
+		return undef;
+	}
+	my $need_mp3_workaround = ( 1 != $stdout );
+	$need_mp3_workaround
+		&& $self->_logger->debug("Mono/stereo mix detected.");
 
 	$self->_logger->debug("Getting volume of $file");
-	my ($stdout, $stderr);
-	run3 [
-		@{$self->_ffmpeg},
-		-i          => $file,
-		'-filter:a' => $self->_get_filter('loudnorm'),
-		-f          => 'null',
-		'-'
-	], \undef, \$stdout, \$stderr;
-	if ($?) {
+	if ($need_mp3_workaround) {
+		# Can't just use -ac 2 because then ffmpeg insists on lowering
+		# volume of mono sections by 3dB.
+		$run_ok = run(
+			[
+				@{$self->_ffmpeg},
+				-loglevel   => 'warning',
+				-i          => $file,
+				-map 		=> 'a:',
+				'-filter:a'	=> 'aeval=val(0)|val(nb_in_channels-1):c=stereo',
+				'-c:a'      => 'pcm_s16le',
+				-f			=> 'nut',
+				'pipe:'
+			], q{|}, [
+				@{$self->_ffmpeg},
+				-loglevel   => 'info',
+				-f			=> 'nut',
+				-i			=> 'pipe:',
+				'-filter:a'	=> $self->_get_filter('loudnorm'),
+				-f 			=> 'null',
+				'pipe:'
+			], \$stdout, \$stderr
+		);
+	} else {
+		$run_ok = run(
+			[
+				@{$self->_ffmpeg},
+				-i          => $file,
+				'-filter:a' => $self->_get_filter('loudnorm'),
+				-f          => 'null',
+				'-'
+			], \undef, \$stdout, \$stderr
+		);
+	}
+	if (!$run_ok) {
 		$self->_logger->error("ffmpeg exited status $?");
 		$self->_logger->error("ffmpeg stderr: $stderr");
 		return undef;
@@ -226,11 +319,12 @@ sub _get_bs1770_info {
 	if (my $json = $self->_read_ffmpeg_json($stderr)) {
 		$self->_logger->debug({filter => \&Data::Dump::pp, value => $json});
 		return {
-			loudness  => 0 + $json->{input_i},
-			range     => 0 + $json->{input_lra},
-			threshold => 0 + $json->{input_thresh},
-			truepeak  => 0 + $json->{input_tp},
-			offset    => 0 + $json->{target_offset},
+			loudness      => 0 + $json->{input_i},
+			range         => 0 + $json->{input_lra},
+			threshold     => 0 + $json->{input_thresh},
+			truepeak      => 0 + $json->{input_tp},
+			offset        => 0 + $json->{target_offset},
+			mixed_layouts => 0 + $need_mp3_workaround,
 		};
 	} else {
 		$self->_logger->error(
