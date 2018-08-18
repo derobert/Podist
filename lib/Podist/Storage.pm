@@ -148,6 +148,11 @@ sub archive_speech {
 	my ($oldstore, $p_no, $name)
 		= $self->_db->get_speech_storage($speech_no);
 
+	if ('archived-processed' eq $oldstore) {
+		DEBUG("Speech $name already archived");
+		return;
+	}
+
 	my $old = $self->_compute_processed_path($oldstore, $p_no, $name);
 	my $dir
 		= $self->_compute_processed_path('archived-processed', $p_no, '');
@@ -229,10 +234,20 @@ sub save_processed_temp {
 sub delete_processed {
 	my ($self, $e_no) = @_;
 	foreach my $info (@{$self->_db->get_processed_parts($e_no)}) {
-		my $path = $self->_compute_processed_path($info->{processed_store},
-			$info->{playlist_no}, $info->{proc_part_file});
-		TRACE("Deleting processed file $path");
-		unlink($path);
+		eval {
+			my $path = $self->_compute_processed_path(
+				$info->{processed_store},
+				$info->{playlist_no}, $info->{proc_part_file});
+			TRACE("Deleting processed file $path");
+			unlink($path);
+		};
+		if ($@) {
+			if ($@ =~ /deleted processed file/) {
+				DEBUG("Already deleted $info->{proc_part_file}");
+			} else {
+				die;
+			}
+		}
 	}
 
 	$self->_db->update_processed_storage($e_no, 'deleted');
@@ -347,8 +362,12 @@ sub archive_original {
 	my ($self, $e_no) = @_;
 
 	my ($store, $p_no, $name) = $self->_db->get_enclosure_storage($e_no);
-	'original' eq $store
-		or confess "Enclosure $e_no ($name) in unexpected store '$store'";
+	if ('archived' eq $store) {
+		DEBUG("Enclosure $name already archived");
+		return;
+	} elsif ('original' ne $store) {
+		confess "Enclosure $e_no ($name) in unexpected store '$store'";
+	}
 
 	my $old = $self->_compute_media_path($store,    $p_no, $name);
 	my $new = $self->_compute_media_path('archived', $p_no, $name);
