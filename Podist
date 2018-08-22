@@ -159,6 +159,13 @@ sub register_commands {
 sub add_podcast {
 	my ($name, $url) = @_;
 
+	($name//'') ne '' && ($url//'') ne ''
+		or pod2usage({
+			-message => "Error: Podist add/subscribe needs a name and a URL.",
+			-verbose => 99,
+			-sections => ['COMMAND SUMMARY'],
+		});
+
 	$DB->do(<<QUERY, {}, $name, $url);
 INSERT INTO feeds(feed_name, feed_url) VALUES(?, ?)
 QUERY
