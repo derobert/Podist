@@ -17,6 +17,9 @@
     </note>
     <note priority="verylow" time="1433315290">
         "Play something" for when you're on the computer and want a podcast. Need to figure how that should interact with playlisted, but not yet played, podcasts.
+        <note priority="verylow" time="1535223458">
+            Might be possible to work with the feed output, since can just re-output feed w/o it.
+        </note>
     </note>
     <note priority="verylow" time="1433315222">
         Web interface
@@ -33,8 +36,11 @@
     <note priority="low" time="1519746182">
         Store article text, etc. from original feed so can re-add them to the generated feed
     </note>
-    <note priority="low" time="1518250138">
+    <note priority="low" time="1518250138" done="1535223350">
         Speech output is truncated. Seems to be from asking it for a given frequency (sample rate). Debian bug #890018. (Could work around by using sox to resample).
+        <comment>
+            Debian bug is fixed.
+        </comment>
     </note>
     <note priority="low" time="1518161823">
         Proper exceptions for Storage.pm instead of die/croak all over the place (e.g., exception objects). Much better user experience to have Podist catch and report non-programmer errors.
@@ -74,6 +80,9 @@
     </note>
     <note priority="medium" time="1530643199">
         Way to grab first X items when limit is exceeded (instead of rolling back and grabbing none). Good for long podcasts where maybe you want to sample the newest episodes.
+        <note priority="medium" time="1535223324">
+            ... or the oldest.
+        </note>
     </note>
     <note priority="medium" time="1517772631">
         fsck improvements
@@ -86,6 +95,9 @@
     </note>
     <note priority="medium" time="1445791807">
         Make everything care about article_use.
+        <note priority="low" time="1535223290">
+            status seems to ignore it
+        </note>
         <note priority="medium" time="1445792498">
             cleanup: should it clean up enclosures where all of the articles referencing them are _use=0? (If so, what if we get another article that uses the enclosure...)
         </note>
@@ -125,11 +137,17 @@
         <note priority="medium" time="1433314592">
             Compander
         </note>
-        <note priority="high" time="1530243941">
+        <note priority="high" time="1530243941" done="1535223140">
             Add formats other than Opus. Opus is causing my phone to lag badly whenever starting BeyondPod, or switching back to it, etc. Maybe on download too.
+            <comment>
+                actually finished for 0.4
+            </comment>
         </note>
-        <note priority="high" time="1433314559">
+        <note priority="high" time="1433314559" done="1535223175">
             ReplayGain
+            <comment>
+                Have volume leveling via re-encode instead (due to player apps not caring about replaygain)
+            </comment>
         </note>
     </note>
     <note priority="medium" time="1433255210" done="1433313421">
@@ -138,8 +156,14 @@
             done
         </comment>
     </note>
-    <note priority="high" time="1531202714">
+    <note priority="high" time="1535223623">
+        Add an easy way to drop podcasts. Need to consider how they should be marked in the DB (article_use is obvious, but some places ignore). Right now manually marking enclosures as enclosure_use=0, but that does have the issue of if a different podcast links to the same enclosure (if that ever happens in the real world)
+    </note>
+    <note priority="high" time="1531202714" done="1535223656">
         Cross-filesystem moves (for example, since unusable is now on S3QL)
+        <comment>
+            At least it works for unusable now.
+        </comment>
     </note>
     <note priority="high" time="1521164914">
         Has enclosure/processed been split for little reason? Seems it probably has...
