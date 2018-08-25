@@ -1,5 +1,14 @@
 <?xml version="1.0"?>
 <todo version="0.1.20">
+    <note priority="verylow" time="1530643335">
+        Maybe multiple don't-use statuses? Might be useful to know whether it was a duplicate, part of a dropped podcast, and episode you didn't care about, etc.
+    </note>
+    <note priority="verylow" time="1519759157">
+        Per-feed priority (make episodes of FeedA more likely to go in the playlist than FeedB) in addition to current weighting (e.g., number unplayed)
+    </note>
+    <note priority="verylow" time="1518732981">
+        List more stuff with feeds, like limit
+    </note>
     <note priority="verylow" time="1436920611">
         Parallel download (grab from multiple servers at once)
     </note>
@@ -12,8 +21,41 @@
     <note priority="verylow" time="1433315222">
         Web interface
     </note>
-    <note priority="low" time="1516807704">
+    <note priority="low" time="1530643281">
+        Combined add+fetch to make it easy to do a temporary limit override for new podcasts
+    </note>
+    <note priority="low" time="1530643237">
+        Easy way to disable a podcast and optionally dont-use all its remaining episodes
+    </note>
+    <note priority="low" time="1530244001">
+        Support podcasts before the Unix epoch (such as BBC Reith Lectures). Let *_when be negative.
+    </note>
+    <note priority="low" time="1519746182">
+        Store article text, etc. from original feed so can re-add them to the generated feed
+    </note>
+    <note priority="low" time="1518250138">
+        Speech output is truncated. Seems to be from asking it for a given frequency (sample rate). Debian bug #890018. (Could work around by using sox to resample).
+    </note>
+    <note priority="low" time="1518161823">
+        Proper exceptions for Storage.pm instead of die/croak all over the place (e.g., exception objects). Much better user experience to have Podist catch and report non-programmer errors.
+    </note>
+    <note priority="low" time="1518161348">
+        Would benefit from an ORM, like DBIC. Podist::Database is getting more and more pseudo-ORM-like. And to the extent it isn't, things are working around it...
+        <note priority="verylow" time="1518161711">
+            This would probably also greatly reduce the weird coupling between the two...
+        </note>
+        <note priority="verylow" time="1518161478">
+            example avoided: we pass an enclosure_no to Storage (which we got from the DB), which then calls back to the DB to get more details about it. Instead of just passing an Enclosure object.
+        </note>
+        <note priority="low" time="1518161562">
+            example: get_*_storage returning a list of values (and all the code duplication there)
+        </note>
+    </note>
+    <note priority="low" time="1516807704" done="1530250399">
         Status: add sub-item to already playlisted for unarchived
+        <comment>
+            Added to summary.
+        </comment>
     </note>
     <note priority="low" time="1434066868" done="1445791741">
         Add oldest unplaylisted to status
@@ -30,6 +72,18 @@
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
     </note>
+    <note priority="medium" time="1530643199">
+        Way to grab first X items when limit is exceeded (instead of rolling back and grabbing none). Good for long podcasts where maybe you want to sample the newest episodes.
+    </note>
+    <note priority="medium" time="1517772631">
+        fsck improvements
+        <note priority="medium" time="1517773306">
+            enclosure_store that makes no sense (e.g., pending + playlisted)
+        </note>
+        <note priority="medium" time="1517772649">
+            Check for playlisted + enclosure_use=0
+        </note>
+    </note>
     <note priority="medium" time="1445791807">
         Make everything care about article_use.
         <note priority="medium" time="1445792498">
@@ -38,11 +92,29 @@
     </note>
     <note priority="medium" time="1433314505">
         Audio processing
+        <note priority="verylow" time="1519715526">
+            Split podcast into chapters (but it turns out no podcasts seem to actually have chapter markers; try: ffprobe -loglevel error -hide_banner  -of json  -show_chapters FILE)
+        </note>
+        <note priority="verylow" time="1519527878">
+            Random items should use same processing code as podcasts instead of a separate program
+        </note>
+        <note priority="verylow" time="1518244365">
+            Should speech really go in processed? Its not actually processed from other audio, and e.g., a newer version of Festival could make it sound really different. Might want to archive it. Or feed it through (some) audio processing, I suppose.
+        </note>
+        <note priority="low" time="1519721929">
+            Multi-threaded to use all cores
+        </note>
+        <note priority="low" time="1519714321">
+            ffmpeg encode to opus does not seem to support cover art; need to find a way to copy it over into METADATA_BLOCK_PICTURE vorbis comments
+        </note>
         <note priority="low" time="1433314988">
             Segment detection &amp; splitting (e.g., would be nice to find Science or Fiction in SGU, split it to its own file)
         </note>
         <note priority="low" time="1433314857">
             Intro/ending trimming
+        </note>
+        <note priority="medium" time="1519720079">
+            FIXME: once processing can change length, fix the length being passed to DB::add_processed in process()
         </note>
         <note priority="medium" time="1433315165">
             Noise removal
@@ -53,6 +125,9 @@
         <note priority="medium" time="1433314592">
             Compander
         </note>
+        <note priority="high" time="1530243941">
+            Add formats other than Opus. Opus is causing my phone to lag badly whenever starting BeyondPod, or switching back to it, etc. Maybe on download too.
+        </note>
         <note priority="high" time="1433314559">
             ReplayGain
         </note>
@@ -62,6 +137,12 @@
         <comment>
             done
         </comment>
+    </note>
+    <note priority="high" time="1531202714">
+        Cross-filesystem moves (for example, since unusable is now on S3QL)
+    </note>
+    <note priority="high" time="1521164914">
+        Has enclosure/processed been split for little reason? Seems it probably has...
     </note>
     <note priority="high" time="1433372716" done="1433480610">
         Use/don't use flag for articles
@@ -86,5 +167,11 @@
     </note>
     <note priority="veryhigh" time="1433480122">
         Desperately need basic test suite. (Do the database migrations work? Who knows...)
+        <note priority="low" time="1530249915">
+            Can actually test hours/day and other stats to maybe someday be confident they're right.
+        </note>
+        <note priority="high" time="1518160516">
+            Probably can use git-worktree to check out old versions to test migration between each DB version.
+        </note>
     </note>
 </todo>

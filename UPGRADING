@@ -1,0 +1,89 @@
+Upgrading Podist
+================
+
+This guide only lists upgrades which require manual action. Some
+upgrades also make automatic changes, for example to the database
+schema; those changes aren't always documented here.
+
+The most recent version with upgrade requirements is listed first.
+
+
+How to See the Current Defaults
+-------------------------------
+
+It can be useful to see what a default configuration looks like. The
+easiest way to do that is to run Podist with a non-default configuration
+directory, which will cause a default config to be written there:
+
+   Podist -c ~/tmp-podist-conf
+   [0] Podist has not been configured. Please review this configuration file
+   [0] and set NotYetConfigured to false:
+   [0]     /home/anthony/tmp-podist-conf/podist.conf
+
+then you can review the generated podist.conf to see what the current
+file looks like. Comparing this to your existing config is recommended.
+
+Database Cleanup
+----------------
+
+Sometimes migrations leave backup tables around, generally due to SQLite
+limitations (e.g., incomplete ALTER TABLE support). Currently, you may
+have an "enclosures_v1" and an "enclosures_v7"; both of those can be
+dropped once you're sure the upgrade is successful.
+
+Upgrading to 0.4
+----------------
+
+WARNING: Very old versions of Podist did not create a separate media
+subdirectory for each playlist. The author has 7 playlists like that (he
+suspects the *only* 7). This version of Podist drops support for that
+except for archived playlists. If you have any, make sure they are
+archived before upgrading!
+
+Podist 0.4 introduces the ability to process audio files. Initially,
+this is just to volume-level them and (optionally) reduce dynamic range
+(e.g., for listening in a noisy environment). But it's intended to
+eventually allow things like splitting podcasts in to segments, dropping
+duplicate segments, etc. This required changing how files are organized
+on disk. It also required schema changes, but those are handled
+automatically.
+
+The <storage> section of the config has changed. PendingMedia,
+UnusableMedia, ArchivedMedia, Playlists, ArchivedPlaylists, and
+RandomMedia remain unchanged. PlaylistedMedia is gone; in its place
+are two new directory options: OriginalMedia and ProcessedMedia. In
+addition, there is a new ArchivedProcessed.
+
+When a playlist is created, the original file is moved to
+OriginalMedia/«playlist#» and processed files are created (including
+speech) in ProcessedMedia/«playlist#». Archiving a playlist now moves
+files from OriginalMedia to ArchivedMedia and files in ProcessedMedia
+are either moved to ArchivedProcessed or deleted.
+
+In addition to changing your configuration, you may need to move some
+files around. For example, if you re-use your old PlaylistedMedia for
+ProcessedMedia, you need to *copy* those files to OriginalMedia (except
+for the speech.* files)! Otherwise archiving will fail. Alternatively,
+move them and have Podist process the audio (FIXME: write how once it
+works).
+
+A new "archival" section is added; it has one parameter: Processed,
+which can be "yes", "no", or "speech-only" (the default, to preserve
+previous behavior). Note that if you want the archived .m3us full of
+processed files to work, you need to set this to yes (which will greatly
+increase required disk space). Of course, original files are always
+saved, so you could just reprocess them (or listen to the originals) if
+needed.
+
+The <feed> section gains a <include> subsection, specifying which items
+to include in the feed. Podcasts are (of course) always included. The
+optional ones are "Speeches", "Intermissions" (random music between
+podcasts), and "Leadout" (the lead-out after podcasts are over). Default
+is to include only intermissions.
+
+Next, to the main section (e.g., right under "NotYetConfigured false")
+you need to add "ConfigVersion 2". This will be used in the future when
+manual config changes are needed.
+
+Finally, run Podist fsck which will attempt to locate all your existing
+media files.

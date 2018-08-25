@@ -21,7 +21,7 @@ has _dbh => (
 	builder  => '_build_dbh',
 	handles  => [qw(
 			commit rollback do prepare selectall_arrayref selectrow_array
-			last_insert_id prepare_cached
+			selectcol_arrayref last_insert_id prepare_cached
 			)
 	],
 );
@@ -70,7 +70,7 @@ sub find_article {
 sub add_article {
 	my ($self, %opts) = @_;
 	$opts{feed}  =~ /^\d+$/       or croak "Bad feed number";
-	$opts{when}  =~ /^\d+$/       or croak "Bad when";
+	$opts{when}  =~ /^\d+$/       or croak "Bad when: $opts{when}";
 	$opts{fetch} =~ /^\d+$/       or croak "Bad fetch number";
 
 	# default to true, convert perl truth to strict 0/1 truth.
@@ -113,6 +113,244 @@ sub link_article_enclosure {
 		  VALUES (?, ?)
 	});
 	$sth->execute($article, $enclosure);
+
+	return;
+}
+
+sub add_enclosure_storage {
+	my ($self, $e_no, $store, $name) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		UPDATE enclosures
+		  SET enclosure_store = ?, enclosure_file = ?
+		  WHERE enclosure_no = ?
+	});
+	$sth->execute($store, $name, $e_no);
+
+	return;
+}
+
+sub update_enclosure_storage {
+	my ($self, $e_no, $store) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		UPDATE enclosures
+		  SET enclosure_store = ?
+		  WHERE enclosure_no = ?
+	});
+	$sth->execute($store, $e_no);
+
+	return;
+}
+
+sub get_enclosure_storage {
+	my ($self, $e_no) = @_;
+	wantarray or croak "get_enclosure_storage returns a list";
+
+	my $sth = $self->prepare_cached(q{
+		SELECT enclosure_store, playlist_no, enclosure_file
+		  FROM enclosures WHERE enclosure_no = ?
+	});
+	$sth->execute($e_no);
+	my ($store, $p_no, $name) = $sth->fetchrow_array
+		or confess "enclosure $e_no not found";
+	$sth->finish;
+
+	return ($store, $p_no, $name);
+}
+
+sub get_playlist_enclosures {
+	my ($self, $p_no) = @_;
+
+	$self->selectcol_arrayref(q{
+		SELECT enclosure_no FROM enclosures WHERE playlist_no = ?
+	}, {}, $p_no);
+}
+
+sub get_playlist_speeches {
+	my ($self, $p_no) = @_;
+
+	$self->selectcol_arrayref(q{
+		SELECT speech_no FROM speeches WHERE playlist_no = ?
+	}, {}, $p_no);
+}
+
+sub add_playlist { 
+	my ($self, $template) = @_;
+
+	# we can't use last_insert_id since we need a name for the playlist
+	# based on the playlist number. Instead, use the max() + 1 trick.
+	
+	my ($p_no) = $self->selectrow_array(q{
+		SELECT 1+max(playlist_no) FROM playlists
+	});
+	my $name = sprintf($template, $p_no);
+
+	TRACE("Adding playlist $p_no name $name");
+	$self->do(q{
+		INSERT INTO playlists(playlist_no, playlist_ctime, playlist_file)
+		  VALUES (?, ?, ?)
+	}, {}, $p_no, time(), $name);
+
+	return $p_no;
+}
+
+sub get_playlist_storage {
+	my ($self, $p_no) = @_;
+	wantarray or croak "get_playlist_storage returns a list";
+
+	my $sth = $self->prepare_cached(q{
+		SELECT playlist_archived, playlist_file
+		  FROM playlists WHERE playlist_no = ?
+	});
+	$sth->execute($p_no);
+	my ($archived, $file) = $sth->fetchrow_array
+		or confess "playlist $p_no not found";
+	$sth->finish;
+
+	return ($archived, $file);
+}
+
+sub add_speech {
+	my ($self, %opts) = @_;
+
+	# confess since this will be called from Storage, which isn't the
+	# original source.
+	defined(my $event = $opts{event}) or confess "event param required";
+	defined(my $text  = $opts{text})  or confess "text param required";
+	defined(my $file  = $opts{file})  or confess "file param required";
+	defined(my $store = $opts{store}) or confess "store param required";
+	defined(my $p_no = $opts{playlist_no})
+		or confess "playlist_no param required";
+	defined(my $p_so = $opts{playlist_so})
+		or confess "playlist_so param required";
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO speeches(
+		  playlist_no, playlist_so,
+		  speech_event, speech_text,
+		  speech_file, speech_store
+		) VALUES (
+		  ?, ?,
+		  ?, ?,
+		  ?, ?
+		)
+	});
+	$sth->execute(
+		$p_no, $p_so,
+		$event, $text,
+		$file, $store
+	);
+
+	my $s_no = $self->last_insert_id('', '', 'speeches', 'speech_no');
+	return $s_no;
+}
+
+sub get_speech_storage {
+	# FIXME: ridiculously close to other get_*_storage... need a real
+	# ORM.
+	my ($self, $s_no) = @_;
+	wantarray or croak "get_speech_storage returns a list";
+
+	my $sth = $self->prepare_cached(q{
+		SELECT speech_store, playlist_no, speech_file
+		  FROM speeches WHERE speech_no = ?
+	});
+	$sth->execute($s_no);
+	my ($store, $p_no, $name) = $sth->fetchrow_array
+		or confess "speech $s_no not found";
+	$sth->finish;
+
+	return ($store, $p_no, $name);
+}
+
+sub update_speech_storage {
+	# FIXME: damn same as update_*_storage
+	my ($self, $s_no, $store) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		UPDATE speeches
+		  SET speech_store = ?
+		  WHERE speech_no = ?
+	});
+	$sth->execute($store, $s_no);
+
+	return;
+}
+
+sub add_processed {
+	my ($self, %opts) = @_;
+
+	defined(my $e_no = $opts{enclosure_no})
+		or croak "enclosure_no required";
+	defined(my $p_no = $opts{playlist_no})  or croak "playlist_no required";
+	defined(my $prof = $opts{profile})      or croak "profile required";
+	defined(my $duration = $opts{duration}) or croak "duration required";
+	defined(my $cputime = $opts{cputime})   or croak "cputime required";
+	defined(my $store = $opts{store})       or croak "store required";
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO processed(
+		  enclosure_no, playlist_no, processed_profile,
+		  processed_duration, processed_cputime, processed_store
+		) VALUES (?, ?, ?, ?, ?, ?)
+	});
+	$sth->execute($e_no, $p_no, $prof, $duration, $cputime, $store);
+
+	my $proc_no = $self->last_insert_id('', '', 'processed', 'processed_no');
+	return $proc_no;
+}
+
+sub add_processed_part {
+	my ($self, %opts) = @_;
+
+	defined(my $proc_no = $opts{processed_no})
+		or confess "processed_no param required";
+	defined(my $pp_so = $opts{proc_part_so})
+		or confess "proc_part_so param required";
+	defined(my $pp_file = $opts{proc_part_file})
+		or confess "proc_part_file param required";
+
+	my $sth = $self->prepare_cached(q{
+		INSERT INTO processed_parts(
+		  processed_no, proc_part_so, proc_part_file
+		) VALUES (?, ?, ?)
+	});
+	$sth->execute($proc_no, $pp_so, $pp_file);
+
+	return;
+}
+
+sub get_processed_parts {
+	my ($self, $e_no) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		SELECT
+		    p.processed_no, p.playlist_no, p.processed_store,
+		    pp.proc_part_file
+		  FROM
+		    processed p JOIN processed_parts pp ON (
+		      p.processed_no = pp.processed_no
+		    )
+		  WHERE p.enclosure_no = ?
+	});
+	$sth->execute($e_no);
+
+	my $res = $sth->fetchall_arrayref({});
+	$sth->finish;
+
+	return $res;
+}
+
+sub update_processed_storage {
+	my ($self, $e_no, $store) = @_;
+
+	my $sth = $self->prepare_cached(q{
+		UPDATE processed
+		  SET processed_store = ?
+		  WHERE enclosure_no = ?
+	});
+	$sth->execute($store, $e_no);
 
 	return;
 }
@@ -190,7 +428,7 @@ sub finish_fetch {
 	$sth->execute($status, $fetch_no);
 }
 
-sub archive_playlist {
+sub mark_playlist_archived {
 	my ($self, $p_no) = @_;
 	my $sth = $self->prepare_cached(
 		q{UPDATE playlists SET playlist_archived = ? WHERE playlist_no = ?}
@@ -218,11 +456,79 @@ sub _build_uuid {
 	return $row[0];
 }
 
+sub get_playlist_list {
+	my ($self, $omit_archived) = @_;
+
+	my $query = q{SELECT playlist_no FROM playlists};
+	$query .= q{ WHERE playlist_archived IS NULL} if $omit_archived;
+
+	$self->selectcol_arrayref($query);
+}
+
+sub get_processing_info {
+	my ($self, $playlist) = @_;
+
+	# we use min(article_no) instead of article_when (or a combination
+	# of the two) because we want this to be stable. Hypothetically, a
+	# new fetch could add a new, lower article_when. But article_no
+	# always increases, it's the order they were added to the DB.
+	#
+	# TODO: Consider what to do about a.article_use
+	my $query = <<SQL;
+SELECT
+    e.playlist_so, e.enclosure_no, e.enclosure_file, e.enclosure_time,
+    e.enclosure_store,
+    p.processed_no, p.processed_profile, p.processed_duration,
+    p.processed_store, pp.proc_part_so, pp.proc_part_file,
+    f.feed_no, f.feed_name, f.feed_proc_profile
+  FROM
+    enclosures e
+    LEFT JOIN processed p ON (e.enclosure_no = p.enclosure_no)
+    LEFT JOIN processed_parts pp ON (p.processed_no = pp.processed_no)
+    JOIN (
+      SELECT enclosure_no, MIN(article_no) AS min_article_no
+        FROM articles_enclosures
+       GROUP BY enclosure_no ) AS fa ON (e.enclosure_no = fa.enclosure_no)
+    JOIN articles a ON (fa.min_article_no = a.article_no)
+    JOIN feeds f ON (a.feed_no = f.feed_no)
+  WHERE e.playlist_no = ?
+  ORDER BY e.playlist_so, p.processed_no, pp.proc_part_so
+SQL
+
+	my $sth = $self->prepare($query);
+	$sth->execute($playlist);
+
+	my @res;
+	while (my $row = $sth->fetchrow_hashref) {
+		# this mess so wants for DBIC... it's on the todo list.
+		if (@res && $res[-1]{enclosure_no} == $row->{enclosure_no}) {
+			push @{$row->{processed_parts}}, {
+				proc_part_so   => $row->{proc_part_sp},
+				proc_part_file => $row->{proc_part_file},
+			};
+		} else {
+			my ($pp_so, $pp_file)
+				= delete @{$row}{qw(proc_part_so proc_part_file)};
+			if (defined $pp_so) {
+				$row->{processed_parts}
+					= [{proc_part_so => $pp_so, proc_part_file => $pp_file}];
+			} else {
+				$row->{processed_parts} = [ ];
+			}
+			push @res, $row;
+		}
+	}
+
+	$sth->finish;
+	return \@res
+}
+
 sub unarchived_playlist_info {
 	my ($self) = @_;
 
 	my $sth = $self->prepare_cached(<<SQL);
        SELECT 'enclosure' AS type
+            , 'podcast' AS role
             , info.*
             , a.article_title AS article_title
             , a.article_when AS article_when
@@ -250,6 +556,7 @@ sub unarchived_playlist_info {
     LEFT JOIN feeds f ON (a.feed_no = f.feed_no)
 UNION ALL
        SELECT 'randommedia' AS type
+            , ru.random_use_reason AS role
             , ru.random_no
             , r.random_file
             , NULL AS random_time -- do not have or need...
@@ -276,7 +583,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 7;
+	my $current_vers = 8;
 
 	# Versions:
 	# 0 - no db yet
@@ -287,6 +594,8 @@ sub _get_migrations {
 	# 5 - podist_instance (UUID); add some indexes (performance)
 	# 6 - usable enclosure view
 	# 7 - store random music selections in db
+	# 8 - more explicit storage location in db (enclosures & playlists),
+	#     support for processed versions
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -320,16 +629,37 @@ CREATE TABLE feeds (
   CONSTRAINT is_music_is_bool CHECK (feed_is_music IN (0,1))
 )
 SQL
+	}
+
+	if ($db_vers > 0 && $db_vers < 4) {    
+		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL};
+	}
+
+	if ($db_vers > 0 && $db_vers < 8) {
+		push @sql, q{ALTER TABLE playlists RENAME TO playlists_v7};
+	}
+
+	if ($db_vers < 8) {
 		push @sql, <<SQL;
 CREATE TABLE playlists (
-  playlist_no    INTEGER   NOT NULL PRIMARY KEY,
-  playlist_ctime INTEGER   NOT NULL
+  playlist_no       INTEGER   NOT NULL PRIMARY KEY,
+  playlist_ctime    INTEGER   NOT NULL,
+  playlist_archived INTEGER   NULL,
+  playlist_file     TEXT      NOT NULL UNIQUE
 )
 SQL
 	}
 
-	if ($db_vers < 4) {    # including 0
-		push @sql, q{ALTER TABLE playlists ADD playlist_archived INTEGER NULL};
+	if ($db_vers > 0 && $db_vers < 8) {
+		push @sql, <<SQL;
+INSERT INTO playlists (
+    playlist_no, playlist_ctime, playlist_archived,
+    playlist_file
+  ) SELECT
+    playlist_no, playlist_ctime, playlist_archived,
+    printf('Playlist %03i.m3u', playlist_no)
+  FROM playlists_v7
+SQL
 	}
 
 	if ($db_vers < 5) {
@@ -378,24 +708,42 @@ SQL
 		push @sql, q{DROP VIEW oldest_unplayed};
 	}
 
-	if ($db_vers == 0 || $db_vers == 1) {
+	if ($db_vers < 8) {
+		push @sql,
+			q{ALTER TABLE feeds ADD feed_proc_profile TEXT NOT NULL DEFAULT 'default'};
+	}
+
+	if ($db_vers > 1 && $db_vers < 8) {
+		# grumble, can't add a constraint to an existing table... We
+		# only need to do this if between 2 and 7, because 1->2 already
+		# recreates enclosures.
+		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v7};
+		push @sql, q{DROP INDEX enclosusures_enclosure_hash};
+	}
+
+	if ($db_vers < 8) {
 		push @sql, <<SQL;
 CREATE TABLE enclosures (
   enclosure_no     INTEGER   NOT NULL PRIMARY KEY,
   enclosure_url    TEXT      NOT NULL UNIQUE,
   enclosure_file   TEXT      NULL UNIQUE,
+  enclosure_store  TEXT      NULL,
   enclosure_hash   TEXT      NULL,
   enclosure_time   REAL      NULL, -- length in seconds
   enclosure_use    INTEGER   NOT NULL DEFAULT 1,
   playlist_no      INTEGER   NULL REFERENCES playlists,
   playlist_so      INTEGER   NULL,
   UNIQUE(playlist_no, playlist_so),
-  CONSTRAINT use_is_bool CHECK (enclosure_use IN (0,1))
+  CONSTRAINT use_is_bool CHECK (enclosure_use IN (0,1)),
+  CONSTRAINT valid_enclusre_store CHECK (
+    enclosure_store IN ('pending', 'unusable', 'original', 'archived',
+                        'archived-legacy')
+  )
 )
 SQL
-		push @sql, <<SQL;
-CREATE INDEX enclosusures_enclosure_hash ON enclosures(enclosure_hash)
-SQL
+	}
+
+	if ($db_vers == 0 || $db_vers == 1) {
 		push @sql, <<SQL;
 CREATE TABLE articles (
   article_no       INTEGER   NOT NULL PRIMARY KEY,
@@ -442,6 +790,23 @@ SQL
 INSERT INTO articles_enclosures (article_no, enclosure_no)
   SELECT enclosure_no, enclosure_no
   FROM enclosures_v1
+SQL
+	} elsif ($db_vers < 8) {
+		# migrate enclosures_v7
+		push @sql, <<SQL;
+INSERT INTO enclosures (
+	enclosure_no, enclosure_url, enclosure_file, enclosure_hash,
+	enclosure_time, enclosure_use, playlist_no, playlist_so
+  ) SELECT 
+    enclosure_no, enclosure_url, enclosure_file, enclosure_hash,
+    enclosure_time, enclosure_use, playlist_no, playlist_so
+  FROM enclosures_v7
+SQL
+	}
+
+	if ($db_vers < 8) {
+		push @sql, <<SQL;
+CREATE INDEX enclosusures_enclosure_hash ON enclosures(enclosure_hash)
 SQL
 	}
 
@@ -528,18 +893,83 @@ CREATE TABLE randoms (
   CONSTRAINT random_weight_is_non_negative CHECK (random_weight >= 0)
 )
 SQL
+	}
+
+	# random_uses was created in v7, changed in v8
+	if ($db_vers == 7) {
+		push @sql, q{ALTER TABLE random_uses RENAME TO random_uses_v7};
+	}
+	if ($db_vers < 8) {
 		push @sql, <<SQL;
 CREATE TABLE random_uses (
-  random_no        INTEGER   NOT NULL REFERENCES randoms,
-  playlist_no      INTEGER   NOT NULL REFERENCES playlists,
-  playlist_so      INTEGER   NOT NULL,
+  random_no          INTEGER   NOT NULL REFERENCES randoms,
+  random_use_reason  TEXT      NOT NULL,
+  playlist_no        INTEGER   NOT NULL REFERENCES playlists,
+  playlist_so        INTEGER   NOT NULL,
+  UNIQUE(playlist_no, playlist_so),
+  CONSTRAINT random_uses_valid_reason CHECK(
+    random_use_reason IN ('intermission', 'lead-out')
+  )
+)
+SQL
+	}
+	if ($db_vers == 7) {
+		push @sql, <<SQL;
+INSERT INTO random_uses
+  SELECT random_no, 'intermission', playlist_no, playlist_so
+    FROM random_uses_v7
+SQL
+	}
+
+
+	if ($db_vers < 8) {
+		push @sql, <<SQL;
+CREATE TABLE speeches (
+  speech_no      INTEGER   NOT NULL PRIMARY KEY,
+  playlist_no    INTEGER   NOT NULL REFERENCES playlists,
+  playlist_so    INTEGER   NOT NULL,
+  speech_event   TEXT      NOT NULL,
+  speech_text    TEXT      NOT NULL,
+  speech_file    TEXT      NULL,
+  speech_store   TEXT      NULL,
+  CONSTRAINT valid_speech_store CHECK (
+    speech_store IN ('processed', 'archived-processed', 'deleted')
+  ),
   UNIQUE(playlist_no, playlist_so)
+)
+SQL
+		push @sql, <<SQL;
+CREATE TABLE processed (
+  processed_no       INTEGER   NOT NULL PRIMARY KEY,
+  enclosure_no       INTEGER   NOT NULL UNIQUE,
+  playlist_no        INTEGER   NOT NULL,
+  processed_profile  TEXT      NOT NULL,
+  processed_duration REAL      NOT NULL,
+  processed_cputime  REAL      NOT NULL,
+  processed_store    TEXT      NOT NULL,
+  
+  CONSTRAINT process_playlisted_enclosures
+    FOREIGN KEY(enclosure_no, playlist_no)
+    REFERENCES enclosures(enclosure_no, playlist_no),
+  CONSTRAINT processed_valid_store CHECK (
+    processed_store IN ('processed', 'archived-processed', 'deleted')
+  )
+)
+SQL
+		push @sql, <<SQL;
+CREATE TABLE processed_parts (
+  processed_no       INTEGER   NOT NULL REFERENCES processed,
+  proc_part_so       INTEGER   NOT NULL,
+  proc_part_file     TEXT      NOT NULL,
+
+  PRIMARY KEY(processed_no, proc_part_so)
 )
 SQL
 	}
 
+
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 7};
+	push @sql, q{PRAGMA user_version = 8};
 
 	return \@sql;
 }
