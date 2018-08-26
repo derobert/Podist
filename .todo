@@ -158,6 +158,9 @@
     </note>
     <note priority="high" time="1535223623">
         Add an easy way to drop podcasts. Need to consider how they should be marked in the DB (article_use is obvious, but some places ignore). Right now manually marking enclosures as enclosure_use=0, but that does have the issue of if a different podcast links to the same enclosure (if that ever happens in the real world)
+        <note priority="low" time="1535223872">
+            Current: update enclosures set enclosure_use = 0 where enclosure_no in (select e.enclosure_no from articles a left join articles_enclosures ae on (a.article_no = ae.article_no) left join enclosures e on (ae.enclosure_no = e.enclosure_no) where a.feed_no = 93 and e.playlist_no is null);
+        </note>
     </note>
     <note priority="high" time="1531202714" done="1535223656">
         Cross-filesystem moves (for example, since unusable is now on S3QL)

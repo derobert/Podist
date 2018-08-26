@@ -177,6 +177,10 @@ sub add_podcast {
 	$DB->do(<<QUERY, {}, $name, $url);
 INSERT INTO feeds(feed_name, feed_url) VALUES(?, ?)
 QUERY
+	my $f_no = $DB->last_insert_id('', '', 'feeds', 'feed_no');
+	INFO("Added #$f_no: $name");
+
+	return;
 }
 
 sub catch {
