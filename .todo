@@ -24,11 +24,17 @@
     <note priority="verylow" time="1433315222">
         Web interface
     </note>
+    <note priority="low" time="1544749830">
+        Weight by ln(unplayed) so more-unplayed feeds get more plays, but not overwhelmingly.
+    </note>
     <note priority="low" time="1530643281">
         Combined add+fetch to make it easy to do a temporary limit override for new podcasts
     </note>
-    <note priority="low" time="1530643237">
+    <note priority="low" time="1530643237" done="1544749670">
         Easy way to disable a podcast and optionally dont-use all its remaining episodes
+        <comment>
+            Duplicate of 25 (drop podcasts), but 25 is better specified.
+        </comment>
     </note>
     <note priority="low" time="1530244001">
         Support podcasts before the Unix epoch (such as BBC Reith Lectures). Let *_when be negative.
