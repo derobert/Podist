@@ -1,4 +1,5 @@
 use Test::More tests => 6;
+use Test::Deep qw(cmp_deeply ignore num);
 use Log::Log4perl;
 
 Log::Log4perl->easy_init(
@@ -18,56 +19,56 @@ my $proc = new_ok(
 );
 
 my $info = $proc->_get_bs1770_info('t-data/test-recording.flac');
-delete $info->{offset}; # do not care
-is_deeply(
+cmp_deeply(
 	$info,
 	{
-		loudness      => -25.49,
-		truepeak      => -6.58,
-		range         => 6.90,
-		threshold     => -36.37,
+		offset        => ignore,
+		loudness      => num(-25.49, 0.02),
+		truepeak      => num(-6.58,  0.02),
+		range         => num(6.90,   0.05),
+		threshold     => num(-36.37, 0.02),
 		mixed_layouts => 0,
 	},
 	'Input got expected ITU BS.1770 info (test-recording)'
 );
 
 $info = $proc->_get_bs1770_info('t-data/MountainKing.flac');
-delete $info->{offset}; # do not care
-is_deeply(
+cmp_deeply(
 	$info,
 	{
-		loudness      => -12.43,
-		truepeak      => 0.30,
-		range         => 24.80,
-		threshold     => -26.34,
+		offset        => ignore,
+		loudness      => num(-12.43, 0.02),
+		truepeak      => num(0.30,   0.02),
+		range         => num(24.80,  0.05),
+		threshold     => num(-26.34, 0.02),
 		mixed_layouts => 0,
 	},
 	'Input got expected ITU BS.1770 info (Mountain King)'
 );
 
 $info = $proc->_get_bs1770_info('t-data/mono.flac');
-delete $info->{offset}; # do not care
-is_deeply(
+cmp_deeply(
 	$info,
 	{
-		loudness      => -22.42,
-		truepeak      => -3.00,
-		range         => 6.30,
-		threshold     => -32.72,
+		offset        => ignore,
+		loudness      => num(-22.42, 0.02),
+		truepeak      => num(-3.00,  0.02),
+		range         => num(6.30,   0.05),
+		threshold     => num(-32.72, 0.02),
 		mixed_layouts => 0,
 	},
 	'Input got expected ITU BS.1770 info (mono)'
 );
 
 $info = $proc->_get_bs1770_info('t-data/stereo-mono.mp3');
-delete $info->{offset}; # do not care
-is_deeply(
+cmp_deeply(
 	$info,
 	{
-		loudness      => -19.19,
-		truepeak      => -3.01,
-		range         => 0.30,
-		threshold     => -29.31,
+		offset        => ignore,
+		loudness      => num(-19.19, 0.02),
+		truepeak      => num(-3.01,  0.02),
+		range         => num(0.30,   0.05),
+		threshold     => num(-29.31, 0.02),
 		mixed_layouts => 1,
 	},
 	'Input got expected ITU BS.1770 info (mixed stereo & mono)'
