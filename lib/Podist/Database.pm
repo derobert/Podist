@@ -769,7 +769,9 @@ CREATE TABLE articles_enclosures (
 SQL
 	}
 
-	if ($db_vers == 1) {
+	if ($db_vers == 0) {
+		# no migration needed for new db
+	} elsif ($db_vers == 1) {
 		# migrate enclosures_v1
 		push @sql, <<SQL;
 INSERT INTO enclosures (
