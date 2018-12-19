@@ -697,6 +697,7 @@ SQL
 		# 1 → 2 upgrade, need to save old enclosures table because
 		# SQLite can't do ALTER TABLE well enough.
 		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v1};
+		push @sql, q{DROP INDEX enclosusures_enclosure_hash};
 	}
 
 	if ($db_vers == 1 || $db_vers == 2) {
