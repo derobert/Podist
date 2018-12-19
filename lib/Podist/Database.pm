@@ -744,7 +744,15 @@ CREATE TABLE enclosures (
 SQL
 	}
 
-	if ($db_vers == 0 || $db_vers == 1) {
+	if ($db_vers == 2) {
+		# can't add columns in middle in SQLite, and adding to the end
+		# confuses tests (because sqldiff shows differences). Podist
+		# doesn't care, though.
+		push @sql, q{ALTER TABLE articles RENAME TO articles_v2};
+		push @sql, q{DROP INDEX articles_feed_title};
+	}
+
+	if ($db_vers < 3) {
 		push @sql, <<SQL;
 CREATE TABLE articles (
   article_no       INTEGER   NOT NULL PRIMARY KEY,
@@ -761,6 +769,19 @@ SQL
 		push @sql, <<SQL;
 CREATE INDEX articles_feed_title ON articles(feed_no, article_title)
 SQL
+	}
+
+	if ($db_vers == 2) {
+		push @sql, <<SQL;
+INSERT INTO articles (
+    article_no, feed_no, article_when, article_uid, article_title
+  ) SELECT
+    article_no, feed_no, article_when, article_uid, article_title
+  FROM articles_v2
+SQL
+	}
+
+	if ($db_vers < 2) {
 		push @sql, <<SQL;
 CREATE TABLE articles_enclosures (
   article_no       INTEGER   NOT NULL REFERENCES articles,
@@ -811,14 +832,6 @@ SQL
 		push @sql, <<SQL;
 CREATE INDEX enclosusures_enclosure_hash ON enclosures(enclosure_hash)
 SQL
-	}
-
-	if ($db_vers == 2) {
-		push @sql,
-			"ALTER TABLE articles ADD fetch_no INTEGER NULL REFERENCES fetches";
-
-		push @sql,
-			q{ALTER TABLE articles ADD article_use INTEGER NOT NULL DEFAULT 1 CONSTRAINT use_is_bool CHECK (article_use IN (0,1))};
 	}
 
 	if ($db_vers < 5) {
