@@ -185,15 +185,15 @@ foreach my $vinfo (@DB_VERSIONS) {
 
 		run3 ['sqldiff', "$confdir/podist.db", $current_db], undef, \$stdout, \$stderr;
 		check_run('sqldiff worked', $stdout, $stderr);
-		$stdout =~ s/^DROP TABLE enclosures_v7;$//m;
-		$stdout =~ s/^DROP TABLE playlists_v7;$//m;
+		$stdout =~ s/^DROP TABLE [a-z_]+_v\d+;$//agm;
 		$stdout =~ s/^UPDATE podist_instance SET podist_uuid=.*$//m;
 		if ($stdout =~ /^\s*$/) {
 			pass('No relevant database differences');
 		} else {
 			fail('No relevant database differences');
+			diag("Differences:\n$stdout");
 			run3 ['sqldiff', $current_db, "$confdir/podist.db"], undef, \$stdout, \$stderr;
-			note("backwards diff: $stdout");
+			diag("backwards diff:\n$stdout");
 		}
 	};
 }
