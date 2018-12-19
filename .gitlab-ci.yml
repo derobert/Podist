@@ -6,6 +6,7 @@ before_script:
   - apt-get dist-upgrade -y
   - apt-get install -y ffmpeg
   - apt-get install -y git
+  - apt-get install -y sqlite3
   - apt-get install -y -t stretch-backports git-lfs
   - apt-get install -y perl libconfig-general-perl libdbi-perl libdbd-sqlite3-perl libfile-slurp-perl libfile-slurper-perl libipc-run3-perl liblist-moreutils-perl libscalar-list-utils-perl liblog-log4perl-perl libwww-perl libmp3-info-perl libnumber-format-perl libogg-vorbis-header-pureperl-perl libterm-size-any-perl libtext-asciitable-perl libtext-csv-perl liburi-perl libxml-feedpp-perl libdata-dump-perl libtest-exception-perl libmoose-perl libipc-run-perl libjson-maybexs-perl libnamespace-autoclean-perl libclone-perl libhash-merge-perl libtest-deep-perl libuuid-perl libtap-harness-archive-perl
   - git-lfs install
@@ -21,3 +22,4 @@ test_prove:
     paths: 
       - artifacts
     expire_in: 1 month
+    when: always

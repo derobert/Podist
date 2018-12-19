@@ -121,7 +121,7 @@ subtest "Creating DB & config with current worktree" => sub {
 
 foreach my $vinfo (@DB_VERSIONS) {
 	subtest "DB version $vinfo->{db_vers}, commit $vinfo->{commit}" => sub {
-		plan tests => 9;
+		plan tests => 11;
 		my $worktree = sprintf('%s/db-%02i-%s-work',
 			$tmpdir, $vinfo->{db_vers}, $vinfo->{commit});
 		my $confdir = sprintf('%s/db-%02i-%s-conf',
@@ -182,6 +182,19 @@ foreach my $vinfo (@DB_VERSIONS) {
 
 		run3 [qw(./Podist --conf-dir), $confdir, 'fsck'], undef, \$stdout, \$stderr;
 		check_run('Current Podist fsck OK', $stdout, $stderr);
+
+		run3 ['sqldiff', "$confdir/podist.db", $current_db], undef, \$stdout, \$stderr;
+		check_run('sqldiff worked', $stdout, $stderr);
+		$stdout =~ s/^DROP TABLE enclosures_v7;$//m;
+		$stdout =~ s/^DROP TABLE playlists_v7;$//m;
+		$stdout =~ s/^UPDATE podist_instance SET podist_uuid=.*$//m;
+		if ($stdout =~ /^\s*$/) {
+			pass('No relevant database differences');
+		} else {
+			fail('No relevant database differences');
+			run3 ['sqldiff', $current_db, "$confdir/podist.db"], undef, \$stdout, \$stderr;
+			note("backwards diff: $stdout");
+		}
 	};
 }
 
