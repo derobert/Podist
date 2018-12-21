@@ -182,7 +182,7 @@ sub add_playlist {
 	# based on the playlist number. Instead, use the max() + 1 trick.
 	
 	my ($p_no) = $self->selectrow_array(q{
-		SELECT 1+max(playlist_no) FROM playlists
+		SELECT 1+COALESCE(max(playlist_no),0) FROM playlists
 	});
 	my $name = sprintf($template, $p_no);
 
