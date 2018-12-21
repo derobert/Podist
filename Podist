@@ -1746,7 +1746,7 @@ DataDir $confdir # e.g., \$HOME/.podist
 	Playlists         \$HOME/Podist/playlists
 	ArchivedPlaylists \$HOME/Podist/archived
 
-	RandomMedia       \$HOME/Podist/playlists/random
+	RandomMedia       \$HOME/Podist/random
 </storage>
 
 <archival>

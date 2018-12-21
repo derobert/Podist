@@ -1,0 +1,115 @@
+#!/usr/bin/perl
+use 5.024;
+use warnings qw(all);
+use strict;
+
+use DateTime;
+use File::Path qw(make_path);
+use File::Spec;
+use File::Temp qw(tempdir);
+use IPC::Run3 qw(run3);
+use List::MoreUtils qw(natatime pairwise);
+use URI::Escape qw(uri_escape);
+use UUID qw(uuid);
+use XML::FeedPP;
+
+my $tmpdir = tempdir( CLEANUP => 1);
+my $wavfile = "$tmpdir/license.wav";
+my $outdir = 't-gen/feeds/v1/'; # v1 = cache buster
+
+# 0 == $CONF_N_MP3 % $CONF_N_FEEDS or unexpected things may occur.
+my $CONF_N_MP3 = 32;
+my $CONF_N_FEED = 8;
+
+# If everything exists, then caching has saved us a bunch of time.
+# Horray for caching. Let's check. Note that the vN string in the path
+# is to use a cache-buster if we ever need it.
+printf STDERR "Checking cache... ";
+my $cache_missing = 0;
+-e "$outdir/feed_$_.xml"  || ++$cache_missing for (1 .. $CONF_N_FEED);
+-e "$outdir/audio/$_.mp3" || ++$cache_missing for (1 .. $CONF_N_MP3);
+if ($cache_missing) {
+	print STDERR "$cache_missing missing.\n";
+} else {
+	print STDERR "all present.\n";
+	exit 0;
+}
+
+make_path $outdir;
+make_path "$outdir/audio";
+
+print STDERR "Converting license to audio (will take a bit)... ";
+run3([qw(text2wave -eval (voice_kal_diphone) -f 44100 -o),$wavfile ],
+	 './LICENSE.txt');
+0 == $? or die "text2wave failed: $?";
+print STDERR "done.\n";
+
+# Podist tests file for bitwise identical, so we need a lot of these to
+# be different. Doing a different encode for each w/ dithering ought
+# to do that, but in order to actually make sox dither we fade in
+# (creating higher bit-depth audio...).
+#
+# We could check the length of of the generated file and do some math,
+# but it's not essential. It's around 14 minutes. We'll play it twice to
+# get slightly under 30-minute episodes and then generate 32 of them (configured
+# above) to get a bit under 15 hours of audio. Which we can then divide
+# into
+# multiple feeds.
+# 
+# Finally, yes, these are VBR. Podist should work with VBR.
+my @mp3s = map {
+	print STDERR "Generating MP3 #$_... ";
+	my $mp3 = "$outdir/audio/$_.mp3";
+
+	run3([
+			'sox', '-q', $wavfile, $wavfile, '-C', '-9.7', $mp3,
+			qw(fade l 1 dither)
+		]);
+	0 == $? or die "sox failed";
+
+	print STDERR "done.\n";
+	$mp3;
+} (1 .. $CONF_N_MP3);
+
+# We make 8 feeds. That should be more than enough to be sure e.g.,
+# playlist generation doesn't fail due to same-feed constraints.
+my @feeds = map(XML::FeedPP::RSS->new(
+		title       => "Test Feed #$_",
+		description => "Podist test data, generated",
+		generator   => 'make-test-feeds',
+		pubDate     => time(),
+	), (1 .. $CONF_N_FEED));
+
+# Each mp3 was posted 1 hour apart, surely. Starting exactly that many
+# hours ago.
+my $item_time = DateTime->now->subtract(hours => scalar(@mp3s));
+my $inum = 1;
+my $uuid = uuid();
+
+# Add items to feeds
+my $iter = natatime(scalar(@feeds), @mp3s);
+while (my @items = $iter->()) {
+	pairwise {    # a = feed, b = mp3
+
+		# This is uri_escape's default set, plus allow /
+		my $url = q{file://}
+			. uri_escape(File::Spec->rel2abs($b), q{^A-Za-z0-9\-\._~/});
+		my $item = $a->add_item(
+			title              => "Test MP3 #$inum",
+			pubDate            => $item_time->epoch,
+			description        => "A rather boring episode.",
+			guid               => "make-test-feeds-$uuid-$inum",
+			'enclosure@url'   => $url,
+			'enclosure@length' => (-s $b),
+			'enclosure@type'   => 'audio/mp3',
+		);
+		$item_time->add(hours => 1);
+		++$inum;
+	} @feeds, @items;
+}
+
+print STDERR "Generating feeds... ";
+for (my $i = 1; $i <= @feeds; ++$i) {
+	$feeds[$i-1]->to_file("$outdir/feed_$i.xml");
+}
+print STDERR "done.\n";
