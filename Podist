@@ -1852,7 +1852,7 @@ DataDir $confdir # e.g., \$HOME/.podist
 	Engine Festival
 
 	# The voice to use
-	Voice rab_diphone
+	Voice kal_diphone
 
 	# How loud to make the audio
 	Volume 12dbFS
