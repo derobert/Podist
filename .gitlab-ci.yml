@@ -1,6 +1,14 @@
 image: debian:stretch
 
+cache:
+  key: global
+  paths:
+    - t-gen/
+    - .apt
+
 before_script:
+  - rm -f /etc/apt/apt.conf.d/docker-clean
+  - mkdir -p .apt && mkdir -p /var/cache/apt/archives && mount --bind .apt /var/cache/apt/archives/
   - printf '%s\n' 'deb http://deb.debian.org/debian stretch-backports main' >> /etc/apt/sources.list
   - apt-get update
   - apt-get dist-upgrade -y
@@ -13,13 +21,9 @@ before_script:
   - git-lfs install
   - git submodule init
   - git submodule update
- 
+
 test_prove:
   stage: test
-  cache:
-    key: t-gen
-    paths:
-      - t-gen/
   script:
     - mkdir -p artifacts/tap
     - t/make-test-feeds 
