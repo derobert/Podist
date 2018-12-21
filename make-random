@@ -7,8 +7,13 @@ target=i=$target_LUFS:tp=-2:lra=20:dual_mono=true
 
 ffshutup=(-nostdin -hide_banner -nostats -loglevel info)
 
-smso=$(tput smso)
-rmso=$(tput rmso)
+if [ -n "$TERM" ] && [ -t 2 ]; then
+	smso=$(tput smso)
+	rmso=$(tput rmso)
+else
+	smso=
+	rmso=
+fi
 
 declare -A found_input
 
