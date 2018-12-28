@@ -61,14 +61,17 @@ test_buster:
     when: always
 
 pages:
+  image: debian:stretch
   only:
     - master
   stage: deploy
   dependencies:
     - test_stretch
+  before_script: []
   script:
     - mkdir public
     - cp -R artifacts/cover_html public/coverage
+  after_script: []
   artifacts:
     paths:
       - public/
