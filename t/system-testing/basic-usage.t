@@ -7,8 +7,10 @@ use File::pushd qw(pushd);
 use File::Slurper qw(read_text write_text read_lines);
 use File::Spec;
 use IPC::Run3;
+use Test::Deep;
 use Test::Exception;
 use Test::More;
+use Text::CSV;
 use DBI;
 
 # This test is somewhat dangerous (e.g., might ignore the non-default
@@ -21,7 +23,7 @@ if (!$ENV{LIVE_DANGEROUSLY}) {
 	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
 	exit 0;
 } else {
-	plan tests => 37;
+	plan tests => 40;
 }
 
 # Make Podist actually run with coverage...
@@ -219,6 +221,62 @@ check_run("Archived second playlist", $stdout, $stderr);
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing AFTER archive:\n$stdout");
 
+# 38
+subtest 'Podist list -f OK' => sub {
+	plan tests => 9;
+	run3 [@podist, qw(list -f)], undef, \$stdout, \$stderr;
+	check_run("List feeds runs", $stdout, $stderr);
+	$stdout =~ y/ .|+'-/ /sd;    # remove formatting
+	$stdout =~ s/^\s+//gm;
+	$stdout =~ s/\s+$//gm;
+	note("Formatting removed to:\n$stdout");
+	foreach (split("\n", $stdout)) {
+		/^Feeds$/            and next;    # header
+		/^$/                 and next;    # header or footer (line);
+		/^Enabled Feed Name/ and next;    # header;
+		if (/^Yes Feed ([0-8]) \1 default$/) {
+			pass("Found Feed $1");
+		} else {
+			fail("Unexpected line: $_");
+		}
+	}
+};
+
+# 39
+subtest 'Podist history OK' => sub {
+	plan tests => 4;
+	run3 [@podist, qw(history)], undef, \$stdout, \$stderr;
+	check_run("History runs", $stdout, $stderr);
+
+	open my $fh, '<', \$stdout;
+	my $csv = Text::CSV->new;
+	while (my $row = $csv->getline($fh)) {
+		if ($row->[0] eq 'When_UTC') {
+			pass("Found header row");
+		} else {
+			cmp_deeply(
+				$row,
+				[
+					re(qr/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/a),
+					32,
+					code(sub {
+						$_[0] < 32
+							? (1)
+							: (0, "should be fewer than 32 unplayed")
+					}),
+					num(53313.2016326531, 64),    # ±2s/episode
+					ignore(), # unplayed time
+				], "History row OK");
+		}
+	}
+};
+
+# 40
+run3 [@podist, qw(cleanup)], undef, \$stdout, \$stderr;
+check_run("Cleanup runs", $stdout, $stderr);
+
+# TODO: Actually add some enclosures to clean up.
+
 
 exit 0;
 
@@ -228,12 +286,12 @@ sub check_run {
 
 	if (0 == $?) {
 		pass($message);
-		note("stdout: $stdout");
-		note("stderr: $stderr");
+		note("stdout:\n$stdout");
+		note("stderr:\n$stderr");
 	} else {
 		fail($message);
-		diag("stdout: $stdout");
-		diag("stderr: $stderr");
+		diag("stdout:\n$stdout");
+		diag("stderr:\n$stderr");
 	}
 
 	return;
