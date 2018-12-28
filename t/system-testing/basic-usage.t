@@ -21,7 +21,7 @@ if (!$ENV{LIVE_DANGEROUSLY}) {
 	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
 	exit 0;
 } else {
-	plan tests => 34;
+	plan tests => 37;
 }
 
 my $FEED_DIR = 't-gen/feeds/v1';
@@ -199,6 +199,22 @@ is($res, 0, 'No remaining "original" enclosures after archive');
 $res = $dbh->selectrow_hashref(q{SELECT * FROM playlists});
 is($res->{playlist_no}, 1, 'Still playlist 1');
 ok(defined($res->{playlist_archived}), 'Has archival time');
+
+# 35
+run3 [@podist, 'playlist'], undef, \$stdout, \$stderr;
+check_run("Generated second playlist", $stdout, $stderr);
+
+# 36
+run3 [@podist, 'process'], undef, \$stdout, \$stderr;
+check_run("Ran audio processing", $stdout, $stderr);
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing after processing:\n$stdout");
+
+# 37
+run3 [@podist, qw(archive 2)], undef, \$stdout, \$stderr;
+check_run("Archived second playlist", $stdout, $stderr);
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing AFTER archive:\n$stdout");
 
 
 exit 0;
