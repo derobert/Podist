@@ -1,3 +1,4 @@
 *.swp
 artifacts
 t-gen
+cover_db

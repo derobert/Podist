@@ -80,6 +80,9 @@ if (!$ENV{LIVE_DANGEROUSLY}) {
 	plan tests => @DB_VERSIONS + 2;
 }
 
+# Make Podist actually run with coverage...
+$ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
+
 my $tmpdir = File::Temp::tempdir(CLEANUP => 1);
 my ($stdout, $stderr);
 
