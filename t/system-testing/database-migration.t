@@ -90,6 +90,9 @@ my $current_db = "$current_confdir/podist.db";
 subtest "Creating DB & config with current worktree" => sub {
 	plan tests => 6;
 
+	# Current Podist, have coverage.
+	local $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
+
 	my $stderr;
 	run3 [qw(./Podist --conf-dir), $current_confdir], undef, undef, \$stderr;
 	like($stderr, qr/set NotYetConfigured to false/, 'Podist conf init');
@@ -177,11 +180,17 @@ foreach my $vinfo (@DB_VERSIONS) {
 			);
 		} 'Re-configured with current config template';
 
-		run3 [qw(./Podist --conf-dir), $confdir, 'status'], undef, \$stdout, \$stderr;
-		check_run('Current Podist migrates & runs status', $stdout, $stderr);
+		{
+			# Current Podist, have coverage.
+			local $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
+			run3 [qw(./Podist --conf-dir), $confdir, 'status'], undef, \$stdout,
+				\$stderr;
+			check_run('Current Podist migrates & runs status', $stdout, $stderr);
 
-		run3 [qw(./Podist --conf-dir), $confdir, 'fsck'], undef, \$stdout, \$stderr;
-		check_run('Current Podist fsck OK', $stdout, $stderr);
+			run3 [qw(./Podist --conf-dir), $confdir, 'fsck'], undef, \$stdout,
+				\$stderr;
+			check_run('Current Podist fsck OK', $stdout, $stderr);
+		}
 
 		run3 ['sqldiff', "$confdir/podist.db", $current_db], undef, \$stdout, \$stderr;
 		check_run('sqldiff worked', $stdout, $stderr);

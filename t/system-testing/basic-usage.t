@@ -24,6 +24,9 @@ if (!$ENV{LIVE_DANGEROUSLY}) {
 	plan tests => 37;
 }
 
+# Make Podist actually run with coverage...
+$ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
+
 my $FEED_DIR = 't-gen/feeds/v1';
 
 my $tmpdir = File::Temp::tempdir(CLEANUP => 1);
