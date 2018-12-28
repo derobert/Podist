@@ -1,12 +1,15 @@
 use 5.024;
 
+use Data::Dump qw(pp);
 use File::Copy qw(copy);
+use File::Find qw(find);
 use File::pushd qw(pushd);
-use File::Slurper qw(read_text write_text);
+use File::Slurper qw(read_text write_text read_lines);
 use File::Spec;
 use IPC::Run3;
 use Test::Exception;
 use Test::More;
+use DBI;
 
 # This test is somewhat dangerous (e.g., might ignore the non-default
 # directories we say to use, and instead do weird things to your actual
@@ -18,13 +21,13 @@ if (!$ENV{LIVE_DANGEROUSLY}) {
 	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
 	exit 0;
 } else {
-	plan tests => 19;
+	plan tests => 37;
 }
 
 my $FEED_DIR = 't-gen/feeds/v1';
 
 my $tmpdir = File::Temp::tempdir(CLEANUP => 1);
-my ($stdout, $stderr);
+my ($stdout, $stderr, $res);
 
 my $conf_dir  = "$tmpdir/conf";
 my $store_dir = "$tmpdir/store";
@@ -50,36 +53,64 @@ lives_ok {
 run3 [@podist, 'status'], undef, \$stdout, \$stderr;
 check_run('Podist status runs', $stdout, $stderr);
 
-# 5 .. 12
+# 5
+my $dbh;
+lives_ok {
+	$dbh = DBI->connect(
+		"dbi:SQLite:dbname=$conf_dir/podist.db",
+		'', '',
+		{
+			ReadOnly         => 1,
+			AutoCommit       => 1,
+			RaiseError       => 1,
+			FetchHashKeyName => 'NAME_lc'
+		});
+} q{"Connected" to Podist database};
+
+# 6 .. 13
 foreach my $feed ( 1 .. 8) {
 	run3 [@podist, 'subscribe', "Feed $feed", "file://" . File::Spec->rel2abs("$FEED_DIR/feed_$feed.xml")], undef, \$stdout, \$stderr;
 	check_run("Podist subscribe Feed #$feed", $stdout, $stderr);
 }
 
-# 13
+# 14
 run3 [@podist, qw(catch -l 1)], undef, \$stdout, \$stderr;
 check_run("Catch with rollback", $stdout, $stderr);
 
-# TODO: confirm no enclosures in DB
+# 15
+($res) = $dbh->selectrow_array(q{SELECT count(*) FROM enclosures});
+is($res, 0, 'No enclosures in DB after rollback');
 
-# 14
+# 16
 run3 [@podist, qw(catch -l 999)], undef, \$stdout, \$stderr;
 check_run("Catch without rollback", $stdout, $stderr);
 
-# TODO: confirm 32 enclosures in DB
+# 17
+($res) = $dbh->selectrow_array(q{SELECT count(*) FROM enclosures});
+is($res, 32, '32 enclosures after catch');
 
-# 15
+# 18
 run3 [@podist, 'status'], undef, \$stdout, \$stderr;
 check_run("Status after catch", $stdout, $stderr);
 
-# 16
+# 19
 TODO: {
 	local $TODO = 'Podist bug, currently fails w/o random items';
 	run3 [@podist, 'playlist'], undef, \$stdout, \$stderr;
 	check_run("Generated playlist w/o randoms", $stdout, $stderr);
 };
 
-# 17
+# 20
+TODO: {
+	local $TODO = 'Podist bug, does not clean up speech on playlist fail';
+	my $files = 0;
+	find(sub { ++$files if -f }, "$store_dir/playlists");
+	is ($files, 0, 'No files in playlist dir after failed generation');
+	note("Working around non-cleanup by emptying processed dir");
+	find(sub { -f and unlink }, "$store_dir/playlists/processed");
+}
+
+# 21
 mkdir("$store_dir/random");
 mkdir("$store_dir/random.in");
 copy("t-data/MountainKing.flac", "$store_dir/random.in/");
@@ -90,16 +121,101 @@ my $make_random = File::Spec->rel2abs('make-random');
 	check_run("Generated random items", $stdout, $stderr);
 }
 
-# 18
+# 22
 run3 [@podist, 'playlist'], undef, \$stdout, \$stderr;
 check_run("Generated playlist with randoms", $stdout, $stderr);
 
-# TODO: Confirm playlist OK.
-# TODO: Check status in DB.
+# 23
+$res = $dbh->selectrow_arrayref(<<QUERY);
+	SELECT playlist_no, playlist_archived, playlist_file FROM playlists
+QUERY
+is_deeply($res, [ 1, undef, 'Playlist 001.m3u' ], 'Playlist DB entry OK');
 
-# 19
+# count items that should be on playlist according to db.
+my $db_item_count = 0;
+
+# 24
+($res) = $dbh->selectrow_array(q{SELECT COUNT(*) FROM random_uses});
+ok($res > 0, 'Random music uses recorded in DB');
+note("DB random music count: $res");
+$db_item_count += $res;
+
+# 25
+($res) = $dbh->selectrow_array(q{SELECT COUNT(*) FROM speeches});
+ok($res > 0, 'Speeches recorded in DB');
+note("DB speeches count: $res");
+$db_item_count += $res;
+
+# 26
+($res) = $dbh->selectrow_array(<<QUERY);
+	SELECT COUNT(*) FROM enclosures WHERE playlist_no IS NOT NULL
+QUERY
+ok($res > 0, 'Used enclosures recorded in DB');
+note("DB playlisted enclosure count: $res");
+$db_item_count += $res;
+
+note("Database says to expect $db_item_count items on the playlist");
+
+# 27
+my @playlist;
+lives_ok {
+	@playlist = read_lines("$store_dir/playlists/Playlist 001.m3u")
+} 'Read generated playlist';
+note("Generated playlist:\n".pp(@playlist));
+
+# 28
+is(scalar(@playlist), $db_item_count,
+	"Found expected number of items in playlist");
+
+# 29
+subtest 'Playlist items exist' => sub {
+	plan tests => scalar(@playlist);
+
+	foreach my $item (@playlist) {
+		ok(-e "$store_dir/playlists/$item", "Entry exists: $item");
+	}
+};
+
+# 30
 run3 [@podist, 'feed'], undef, \$stdout, \$stderr;
 check_run("Generated feed", $stdout, $stderr);
+note("Feed:\n", read_text("$store_dir/playlists/feed.xml"));
+
+# 31
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing BEFORE archive:\n$stdout");
+run3 [@podist, qw(archive 001)], undef, \$stdout, \$stderr;
+check_run("Archived playlist", $stdout, $stderr);
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing AFTER archive:\n$stdout");
+
+# 32
+($res) = $dbh->selectrow_array(<<QUERY);
+	SELECT COUNT(*) FROM enclosures WHERE enclosure_store = 'original'
+QUERY
+is($res, 0, 'No remaining "original" enclosures after archive');
+
+# 33, 34
+$res = $dbh->selectrow_hashref(q{SELECT * FROM playlists});
+is($res->{playlist_no}, 1, 'Still playlist 1');
+ok(defined($res->{playlist_archived}), 'Has archival time');
+
+# 35
+run3 [@podist, 'playlist'], undef, \$stdout, \$stderr;
+check_run("Generated second playlist", $stdout, $stderr);
+
+# 36
+run3 [@podist, 'process'], undef, \$stdout, \$stderr;
+check_run("Ran audio processing", $stdout, $stderr);
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing after processing:\n$stdout");
+
+# 37
+run3 [@podist, qw(archive 2)], undef, \$stdout, \$stderr;
+check_run("Archived second playlist", $stdout, $stderr);
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing AFTER archive:\n$stdout");
+
 
 exit 0;
 
