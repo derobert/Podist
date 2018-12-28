@@ -11,6 +11,8 @@ use Test::Deep;
 use Test::Exception;
 use Test::More;
 use Text::CSV;
+use Podist::Test::SystemTesting
+	qw(setup_config check_run plan_dangerously_or_exit);
 use DBI;
 
 # This test is somewhat dangerous (e.g., might ignore the non-default
@@ -18,13 +20,7 @@ use DBI;
 # Podist install). So we won't run unless LIVE_DANGEROUSLY=1 is set.
 # Note the GitLab CI sets this, as its run in a docker container, so no
 # existing Podist to worry about.
-
-if (!$ENV{LIVE_DANGEROUSLY}) {
-	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
-	exit 0;
-} else {
-	plan tests => 40;
-}
+plan_dangerously_or_exit tests => 40;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -279,45 +275,3 @@ check_run("Cleanup runs", $stdout, $stderr);
 
 
 exit 0;
-
-## subs from here on out
-sub check_run {
-	my ($message, $stdout, $stderr) = @_;
-
-	if (0 == $?) {
-		pass($message);
-		note("stdout:\n$stdout");
-		note("stderr:\n$stderr");
-	} else {
-		fail($message);
-		diag("stdout:\n$stdout");
-		diag("stderr:\n$stderr");
-	}
-
-	return;
-}
-
-sub setup_config {
-	# options: in, out - files names to read/write (may be the same file)
-	#          store - where to configure to store media/playlists
-	#          dbdir - where to find podist.db (optional, only change if
-	#                  specified)
-	my %opts = @_;
-
-	my $conf = read_text($opts{in});
-	$conf =~ s!\$HOME/Podist/!$opts{store}/!g or die "No storage found";
-	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
-		or die "Couldn't find NotYetConfigured";
-	$conf =~ s!^(\s*)Level info(\s+)!${1}Level trace$2!m
-		or die "Couldn't find logging Level";
-
-	if (exists $opts{dbdir}) {
-		$conf =~ s!^DataDir .+ #!DataDir $opts{dbdir} #!m
-			or die "Couldn't find DataDir to replace";
-	}
-
-	note("Writing config: $conf");
-	write_text($opts{out}, $conf);
-
-	return;
-}

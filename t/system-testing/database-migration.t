@@ -2,6 +2,8 @@ use Test::More;
 use Test::Exception;
 use IPC::Run3;
 use File::Slurper qw(read_text write_text);
+use Podist::Test::SystemTesting
+	qw(setup_config check_run plan_dangerously_or_exit);
 use 5.024;
 
 my @DB_VERSIONS = (    # map DB version to git commit
@@ -72,13 +74,7 @@ my @DB_VERSIONS = (    # map DB version to git commit
 # things to your actual Podist install). So we won't run unless
 # LIVE_DANGEROUSLY=1 is set. Note the GitLab CI sets this, as its run in
 # a docker container, so no existing Podist to worry about.
-
-if (!$ENV{LIVE_DANGEROUSLY}) {
-	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
-	exit 0;
-} else {
-	plan tests => @DB_VERSIONS + 2;
-}
+plan_dangerously_or_exit tests => @DB_VERSIONS + 2;
 
 my $tmpdir = File::Temp::tempdir(CLEANUP => 1);
 my ($stdout, $stderr);
@@ -211,45 +207,3 @@ File::Temp::cleanup();
 run3 [qw(git worktree prune)];
 is($?, 0, 'pruned worktrees');
 exit 0;
-
-## subs from here on out
-sub check_run {
-	my ($message, $stdout, $stderr) = @_;
-
-	if (0 == $?) {
-		pass($message);
-		note("stdout: $stdout");
-		note("stderr: $stderr");
-	} else {
-		fail($message);
-		diag("stdout: $stdout");
-		diag("stderr: $stderr");
-	}
-
-	return;
-}
-
-sub setup_config {
-	# options: in, out - files names to read/write (may be the same file)
-	#          store - where to configure to store media/playlists
-	#          dbdir - where to find podist.db (optional, only change if
-	#                  specified)
-	my %opts = @_;
-
-	my $conf = read_text($opts{in});
-	$conf =~ s!\$HOME/Podist/!$opts{store}/!g or die "No storage found";
-	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
-		or die "Couldn't find NotYetConfigured";
-	$conf =~ s!^(\s*)Level info(\s+)!${1}Level trace$2!m
-		or die "Couldn't find logging Level";
-
-	if (exists $opts{dbdir}) {
-		$conf =~ s!^DataDir .+ #!DataDir $opts{dbdir} #!m
-			or die "Couldn't find DataDir to replace";
-	}
-
-	note("Writing config: $conf");
-	write_text($opts{out}, $conf);
-
-	return;
-}
