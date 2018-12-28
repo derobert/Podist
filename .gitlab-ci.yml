@@ -25,7 +25,7 @@ before_script:
 
 # try not to accumulate ancient packages
 after_script:
-  - find .cache/apt -type f -mtime +90 -delete
+  - apt-get autoclean
 
 test_prove:
   stage: test
