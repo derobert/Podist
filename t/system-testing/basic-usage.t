@@ -2,6 +2,7 @@ use 5.024;
 
 use Data::Dump qw(pp);
 use File::Copy qw(copy);
+use File::Find qw(find);
 use File::pushd qw(pushd);
 use File::Slurper qw(read_text write_text read_lines);
 use File::Spec;
@@ -20,7 +21,7 @@ if (!$ENV{LIVE_DANGEROUSLY}) {
 	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
 	exit 0;
 } else {
-	plan tests => 29;
+	plan tests => 34;
 }
 
 my $FEED_DIR = 't-gen/feeds/v1';
@@ -100,6 +101,16 @@ TODO: {
 };
 
 # 20
+TODO: {
+	local $TODO = 'Podist bug, does not clean up speech on playlist fail';
+	my $files = 0;
+	find(sub { ++$files if -f }, "$store_dir/playlists");
+	is ($files, 0, 'No files in playlist dir after failed generation');
+	note("Working around non-cleanup by emptying processed dir");
+	find(sub { -f and unlink }, "$store_dir/playlists/processed");
+}
+
+# 21
 mkdir("$store_dir/random");
 mkdir("$store_dir/random.in");
 copy("t-data/MountainKing.flac", "$store_dir/random.in/");
@@ -110,11 +121,11 @@ my $make_random = File::Spec->rel2abs('make-random');
 	check_run("Generated random items", $stdout, $stderr);
 }
 
-# 21
+# 22
 run3 [@podist, 'playlist'], undef, \$stdout, \$stderr;
 check_run("Generated playlist with randoms", $stdout, $stderr);
 
-# 22
+# 23
 $res = $dbh->selectrow_arrayref(<<QUERY);
 	SELECT playlist_no, playlist_archived, playlist_file FROM playlists
 QUERY
@@ -123,19 +134,19 @@ is_deeply($res, [ 1, undef, 'Playlist 001.m3u' ], 'Playlist DB entry OK');
 # count items that should be on playlist according to db.
 my $db_item_count = 0;
 
-# 23
+# 24
 ($res) = $dbh->selectrow_array(q{SELECT COUNT(*) FROM random_uses});
 ok($res > 0, 'Random music uses recorded in DB');
 note("DB random music count: $res");
 $db_item_count += $res;
 
-# 24
+# 25
 ($res) = $dbh->selectrow_array(q{SELECT COUNT(*) FROM speeches});
 ok($res > 0, 'Speeches recorded in DB');
 note("DB speeches count: $res");
 $db_item_count += $res;
 
-# 25
+# 26
 ($res) = $dbh->selectrow_array(<<QUERY);
 	SELECT COUNT(*) FROM enclosures WHERE playlist_no IS NOT NULL
 QUERY
@@ -145,18 +156,18 @@ $db_item_count += $res;
 
 note("Database says to expect $db_item_count items on the playlist");
 
-# 26
+# 27
 my @playlist;
 lives_ok {
 	@playlist = read_lines("$store_dir/playlists/Playlist 001.m3u")
 } 'Read generated playlist';
 note("Generated playlist:\n".pp(@playlist));
 
-# 27
+# 28
 is(scalar(@playlist), $db_item_count,
 	"Found expected number of items in playlist");
 
-# 28
+# 29
 subtest 'Playlist items exist' => sub {
 	plan tests => scalar(@playlist);
 
@@ -165,10 +176,30 @@ subtest 'Playlist items exist' => sub {
 	}
 };
 
-# 29
+# 30
 run3 [@podist, 'feed'], undef, \$stdout, \$stderr;
 check_run("Generated feed", $stdout, $stderr);
 note("Feed:\n", read_text("$store_dir/playlists/feed.xml"));
+
+# 31
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing BEFORE archive:\n$stdout");
+run3 [@podist, qw(archive 001)], undef, \$stdout, \$stderr;
+check_run("Archived playlist", $stdout, $stderr);
+run3 ['find', $store_dir, '-ls'], undef, \$stdout;
+note("Store directory listing AFTER archive:\n$stdout");
+
+# 32
+($res) = $dbh->selectrow_array(<<QUERY);
+	SELECT COUNT(*) FROM enclosures WHERE enclosure_store = 'original'
+QUERY
+is($res, 0, 'No remaining "original" enclosures after archive');
+
+# 33, 34
+$res = $dbh->selectrow_hashref(q{SELECT * FROM playlists});
+is($res->{playlist_no}, 1, 'Still playlist 1');
+ok(defined($res->{playlist_archived}), 'Has archival time');
+
 
 exit 0;
 
