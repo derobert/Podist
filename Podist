@@ -1846,6 +1846,19 @@ DataDir $confdir # e.g., \$HOME/.podist
 	AnnounceEnd   Yes
 </playlist>
 
+<processing>
+    <profile default>
+        Loudness       -23 LUFS
+        LoudnessRange  unlimited
+        Encoder        lame-vbr   # lame-vbr, vorbis, opus
+        EncodeQuality  2          # meaning depends on Encoder
+    </profile>
+    <profile compress>
+        BasedOn        default
+        LoudnessRange  5 LU
+    </profile>
+</processing>
+
 <speech>
 	# Which TTS engine shall we use? Currently, only Festival is
 	# supported.
