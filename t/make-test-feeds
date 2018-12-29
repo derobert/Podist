@@ -39,7 +39,7 @@ make_path $outdir;
 make_path "$outdir/audio";
 
 print STDERR "Converting license to audio (will take a bit)... ";
-run3([qw(text2wave -eval (voice_kal_diphone) -f 44100 -o),$wavfile ],
+run3([qw(text2wave -eval (voice_kal_diphone) -o),$wavfile ],
 	 './LICENSE.txt');
 0 == $? or die "text2wave failed: $?";
 print STDERR "done.\n";
@@ -49,12 +49,13 @@ print STDERR "done.\n";
 # to do that, but in order to actually make sox dither we fade in
 # (creating higher bit-depth audio...).
 #
-# We could check the length of of the generated file and do some math,
-# but it's not essential. It's around 14 minutes. We'll play it twice to
-# get slightly under 30-minute episodes and then generate 32 of them (configured
-# above) to get a bit under 15 hours of audio. Which we can then divide
-# into
-# multiple feeds.
+# Each reading (episode) is around 38 minutes; by copying we generate 32
+# of them (configured above) to get a bit over 20 hours of audio. Which
+# we can then divide into multiple feeds. (We could do with 24, but
+# there was once a bug, and...)
+#
+# We drop volume by 1dB to avoid clipping in the rate conversion. That
+# probably means the fade is not needed anymore, but oh well.
 # 
 # Finally, yes, these are VBR. Podist should work with VBR.
 my @mp3s = map {
@@ -62,8 +63,8 @@ my @mp3s = map {
 	my $mp3 = "$outdir/audio/$_.mp3";
 
 	run3([
-			'sox', '-q', $wavfile, $wavfile, '-C', '-9.7', $mp3,
-			qw(fade l 1 dither)
+			'sox', '-q', $wavfile, '-C', '-9.7', $mp3,
+			qw(vol -1dB rate -h 44100 fade l 1 dither)
 		]);
 	0 == $? or die "sox failed";
 

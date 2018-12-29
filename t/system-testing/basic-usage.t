@@ -272,7 +272,7 @@ subtest 'Podist history OK' => sub {
 							? (1)
 							: (0, "should be fewer than 32 unplayed")
 					}),
-					num(53313.2016326531, 64),    # ±2s/episode
+					num(74267.16734693888, 60*32),    # ±60s/episode
 					ignore(), # unplayed time
 				], "History row OK");
 		}
