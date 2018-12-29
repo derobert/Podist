@@ -10,7 +10,8 @@ use Test::Exception;
 use Test::More;
 
 use base qw(Exporter);
-our @EXPORT_OK = qw(plan_dangerously_or_exit setup_config check_run basic_podist_setup);
+our @EXPORT_OK = qw(plan_dangerously_or_exit setup_config check_run
+	basic_podist_setup long_note);
 
 sub plan_dangerously_or_exit {
 	if (!$ENV{LIVE_DANGEROUSLY}) {
