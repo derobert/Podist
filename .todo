@@ -203,11 +203,161 @@
     </note>
     <note priority="veryhigh" time="1433480122">
         Desperately need basic test suite. (Do the database migrations work? Who knows...)
+        <note priority="verylow" time="1546046938">
+            Config error: invalid ignore regex (fail to compile regex)
+        </note>
+        <note priority="verylow" time="1546046911">
+            Playlist durations specified in seconds, minutes, and hours in config.
+        </note>
+        <note priority="verylow" time="1546046769">
+            Test getting terminal size when running on a terminal (e.g., pty)
+        </note>
+        <note priority="verylow" time="1546046697">
+            COLUMNS and LINES both set and unset in env
+        </note>
+        <note priority="verylow" time="1546046574" done="1546058864">
+            Test --man
+        </note>
+        <note priority="verylow" time="1546046567" done="1546058866">
+            Test --help
+        </note>
+        <note priority="verylow" time="1546046047">
+            Test random item distribution is as configured
+        </note>
+        <note priority="verylow" time="1546045966">
+            Test config variants: announce end
+        </note>
+        <note priority="verylow" time="1546045957">
+            Test config variants: leadout length = 0
+        </note>
+        <note priority="verylow" time="1546045947">
+            Test config variants: announce leadout
+        </note>
+        <note priority="verylow" time="1546045930">
+            Test config variants: reset consecutive
+        </note>
+        <note priority="verylow" time="1546045842">
+            Test config variants: no begin announcement
+        </note>
+        <note priority="verylow" time="1546045528">
+            Test silly HTTP servers: date in Content-type
+        </note>
+        <note priority="verylow" time="1546045357">
+            Test silly feeds: blank guid
+        </note>
+        <note priority="verylow" time="1546045280">
+            Test silly feeds: Weird spacing around dates (KLUGE marked in Podist)
+        </note>
+        <note priority="verylow" time="1546044826">
+            Test silly feeds: weird MIME types
+        </note>
+        <note priority="low" time="1546046846">
+            Test complicated (custom) logging config; probably also useful to get the color coding out of the TAP logs
+        </note>
+        <note priority="low" time="1546046108">
+            Test invalid speech config (unknown engine, bad voice syntax, unknown audio format, etc.)
+        </note>
+        <note priority="low" time="1546046030">
+            Test with more than one random item
+        </note>
+        <note priority="low" time="1546045868">
+            Test config variants: various choice methods
+        </note>
+        <note priority="low" time="1546045810">
+            Test config variants: speech to MP3
+        </note>
+        <note priority="low" time="1546045692">
+            Test fsck with problems
+        </note>
+        <note priority="low" time="1546045603">
+            Test silly HTTP servers: serving audio as text/plain
+        </note>
+        <note priority="low" time="1546045566">
+            Test server-suggested name w/o suffix
+        </note>
+        <note priority="low" time="1546045422">
+            Test article ignore by title
+        </note>
+        <note priority="low" time="1546045343">
+            Test silly feeds: spacing around uid (XML normalization)
+        </note>
+        <note priority="low" time="1546045062">
+            Test byte-order-mark workaround (Debian bug #661551)
+        </note>
+        <note priority="low" time="1546044867">
+            Test silly feeds: All items with no date
+        </note>
+        <note priority="low" time="1546044857">
+            Test silly feeds: Some items with no date (both ascending and descending feed order)
+        </note>
+        <note priority="low" time="1546044758">
+            Test HTTP error codes on feed fetch
+        </note>
         <note priority="low" time="1530249915">
             Can actually test hours/day and other stats to maybe someday be confident they're right.
         </note>
-        <note priority="high" time="1518160516">
+        <note priority="medium" time="1546046426">
+            Test config variants: leadout in feed
+        </note>
+        <note priority="medium" time="1546046418">
+            Test config variants: intermissions NOT in feed
+        </note>
+        <note priority="medium" time="1546046122" done="1546058715">
+            Test (or just get rid of) all_playlists
+            <comment>
+                Got rid of it. Wasn't even documented.
+            </comment>
+        </note>
+        <note priority="medium" time="1546045915">
+            Test randoms from feed
+        </note>
+        <note priority="medium" time="1546045899">
+            Test playlist constraint failures (feed length, items, too many of given podcast on feed, etc.)
+        </note>
+        <note priority="medium" time="1546045755">
+            Test duplicate (by hash) enclosures
+        </note>
+        <note priority="medium" time="1546045496">
+            Test download fail (HTTP error)
+        </note>
+        <note priority="medium" time="1546045482">
+            Test download fail (truncated)
+        </note>
+        <note priority="medium" time="1546045461">
+            Test limits (exceeding, overriding, etc.)
+        </note>
+        <note priority="medium" time="1546045405">
+            Make sure duplicate article detection works (both by guid and by title/date)
+        </note>
+        <note priority="medium" time="1546045297">
+            Test silly feeds: Items w/o enclosures
+        </note>
+        <note priority="medium" time="1546044887">
+            Test silly feeds: No guid
+        </note>
+        <note priority="high" time="1546046453">
+            Test config variants: generated feed date fudging
+        </note>
+        <note priority="high" time="1546046399">
+            Test config variants: speech in feed
+        </note>
+        <note priority="high" time="1546046231">
+            Test config variants: Do not archive speech
+        </note>
+        <note priority="high" time="1546046220">
+            Test config variants: Archive processed
+        </note>
+        <note priority="high" time="1546045787">
+            Test handling Ogg Vorbis podcasts
+        </note>
+        <note priority="high" time="1546045659" done="1546058487">
+            Test listing randoms (Podist list -r)
+        </note>
+        <note priority="high" time="1518160516" done="1546044724">
             Probably can use git-worktree to check out old versions to test migration between each DB version.
+        </note>
+        <note priority="veryhigh" time="1546045707">
+            Test upgrades with enclosures, playlists, archived playlists
         </note>
     </note>
 </todo>

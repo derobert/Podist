@@ -4,11 +4,11 @@ before_script:
   - printf '%s\n' 'deb http://deb.debian.org/debian stretch-backports main' >> /etc/apt/sources.list
   - apt-get update
   - apt-get dist-upgrade -y
-  - apt-get install -y ffmpeg normalize-audio jq
+  - apt-get install -y ffmpeg normalize-audio jq lame
   - apt-get install -y git
   - apt-get install -y sqlite3
   - apt-get install -y -t stretch-backports git-lfs
-  - apt-get install -y perl libconfig-general-perl libdbi-perl libdbd-sqlite3-perl libfile-slurp-perl libfile-slurper-perl libipc-run3-perl liblist-moreutils-perl libscalar-list-utils-perl liblog-log4perl-perl libwww-perl libmp3-info-perl libnumber-format-perl libogg-vorbis-header-pureperl-perl libterm-size-any-perl libtext-asciitable-perl libtext-csv-perl liburi-perl libxml-feedpp-perl libdata-dump-perl libtest-exception-perl libmoose-perl libipc-run-perl libjson-maybexs-perl libnamespace-autoclean-perl libclone-perl libhash-merge-perl libtest-deep-perl libuuid-perl libtap-harness-archive-perl libdatetime-perl libfile-pushd-perl
+  - apt-get install -y perl perl-doc libconfig-general-perl libdbi-perl libdbd-sqlite3-perl libfile-slurp-perl libfile-slurper-perl libipc-run3-perl liblist-moreutils-perl libscalar-list-utils-perl liblog-log4perl-perl libwww-perl libmp3-info-perl libnumber-format-perl libogg-vorbis-header-pureperl-perl libterm-size-any-perl libtext-asciitable-perl libtext-csv-perl liburi-perl libxml-feedpp-perl libdata-dump-perl libtest-exception-perl libmoose-perl libipc-run-perl libjson-maybexs-perl libnamespace-autoclean-perl libclone-perl libhash-merge-perl libtest-deep-perl libuuid-perl libtap-harness-archive-perl libdatetime-perl libfile-pushd-perl
   - apt-get install -y libdevel-cover-perl libpod-coverage-perl libtemplate-perl libppi-html-perl libjson-xs-perl # coverage modules
   - apt-get install -y festival festvox-kallpc16k sox libsox-fmt-mp3
   - mkdir -p .cache/lfs && git config --global --add 'lfs.storage' "$(pwd)/.cache/lfs"
@@ -32,7 +32,7 @@ test_stretch:
   stage: test
   script:
     - cover -delete
-    - LIVE_DANGEROUSLY=1 HARNESS_PERL_SWITCHES=-MDevel::Cover=+ignore,^t\\/ prove -a artifacts/tap/
+    - LIVE_DANGEROUSLY=1 HARNESS_PERL_SWITCHES=-MDevel::Cover=+ignore,^t\\/,+ignore,^\\/usr\\/ prove -a artifacts/tap/
     - cover -report html_basic -output artifacts/cover_html
   artifacts:
     paths:

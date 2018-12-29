@@ -1,2 +1,3 @@
 --lib
 --recurse
+-I t/lib

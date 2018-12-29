@@ -2,6 +2,8 @@ use Test::More;
 use Test::Exception;
 use IPC::Run3;
 use File::Slurper qw(read_text write_text);
+use Podist::Test::SystemTesting
+	qw(setup_config check_run plan_dangerously_or_exit basic_podist_setup);
 use 5.024;
 
 my @DB_VERSIONS = (    # map DB version to git commit
@@ -72,55 +74,27 @@ my @DB_VERSIONS = (    # map DB version to git commit
 # things to your actual Podist install). So we won't run unless
 # LIVE_DANGEROUSLY=1 is set. Note the GitLab CI sets this, as its run in
 # a docker container, so no existing Podist to worry about.
-
-if (!$ENV{LIVE_DANGEROUSLY}) {
-	plan skip_all => 'LIVE_DANGEROUSLY=1 not set in environment';
-	exit 0;
-} else {
-	plan tests => @DB_VERSIONS + 2;
-}
+plan_dangerously_or_exit tests => @DB_VERSIONS + 2;
 
 my $tmpdir = File::Temp::tempdir(CLEANUP => 1);
 my ($stdout, $stderr);
 
 my $current_confdir = "$tmpdir/db-CURRENT-conf";
 my $current_workdir = "$tmpdir/db-CURRENT-work";
-my $current_conftmpl = "$current_confdir/podist.conf";
-my $current_db = "$current_confdir/podist.db";
-subtest "Creating DB & config with current worktree" => sub {
-	plan tests => 6;
+my $current_conftmpl;
+my $current_db;
 
+{
 	# Current Podist, have coverage.
 	local $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
-
-	my $stderr;
-	run3 [qw(./Podist --conf-dir), $current_confdir], undef, undef, \$stderr;
-	like($stderr, qr/set NotYetConfigured to false/, 'Podist conf init');
-
-	-f $current_conftmpl
-		or BAIL_OUT("Current Podist broken; did not create new config");
-	pass("created template config file");
-
-	# in order to create the database, we need it configured... but we
-	# also want the conf template. So create a new conf dir for that.
-	my $confdir2 = "$tmpdir/db-CURRENT-conf2";
-	ok(mkdir($confdir2), "Created secondary conf dir for testing");
-
-	lives_ok {
-		setup_config(
-			in    => $current_conftmpl,
-			out   => "$confdir2/podist.conf",
-			store => $current_workdir
-		);
-	} 'Set up current config';
-
-	run3 [qw(./Podist --conf-dir), $confdir2, 'status'], undef, \$stdout, \$stderr;
-	check_run('Podist status OK', $stdout, $stderr);
-
-	-f $current_db
-		or BAIL_OUT("Current Podist broken; did not create new database");
-	pass("created current database");
-};
+	my $current_setup = basic_podist_setup(
+		temp_dir  => $tmpdir,
+		conf_dir  => $current_confdir,
+		store_dir => $current_workdir
+	);
+	$current_conftmpl = $current_setup->{conf_template};
+	$current_db = $current_setup->{db_file};
+}
 
 foreach my $vinfo (@DB_VERSIONS) {
 	subtest "DB version $vinfo->{db_vers}, commit $vinfo->{commit}" => sub {
@@ -211,45 +185,3 @@ File::Temp::cleanup();
 run3 [qw(git worktree prune)];
 is($?, 0, 'pruned worktrees');
 exit 0;
-
-## subs from here on out
-sub check_run {
-	my ($message, $stdout, $stderr) = @_;
-
-	if (0 == $?) {
-		pass($message);
-		note("stdout: $stdout");
-		note("stderr: $stderr");
-	} else {
-		fail($message);
-		diag("stdout: $stdout");
-		diag("stderr: $stderr");
-	}
-
-	return;
-}
-
-sub setup_config {
-	# options: in, out - files names to read/write (may be the same file)
-	#          store - where to configure to store media/playlists
-	#          dbdir - where to find podist.db (optional, only change if
-	#                  specified)
-	my %opts = @_;
-
-	my $conf = read_text($opts{in});
-	$conf =~ s!\$HOME/Podist/!$opts{store}/!g or die "No storage found";
-	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
-		or die "Couldn't find NotYetConfigured";
-	$conf =~ s!^(\s*)Level info(\s+)!${1}Level trace$2!m
-		or die "Couldn't find logging Level";
-
-	if (exists $opts{dbdir}) {
-		$conf =~ s!^DataDir .+ #!DataDir $opts{dbdir} #!m
-			or die "Couldn't find DataDir to replace";
-	}
-
-	note("Writing config: $conf");
-	write_text($opts{out}, $conf);
-
-	return;
-}
