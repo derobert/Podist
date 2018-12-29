@@ -302,8 +302,11 @@
         <note priority="medium" time="1546046418">
             Test config variants: intermissions NOT in feed
         </note>
-        <note priority="medium" time="1546046122">
+        <note priority="medium" time="1546046122" done="1546058715">
             Test (or just get rid of) all_playlists
+            <comment>
+                Got rid of it. Wasn't even documented.
+            </comment>
         </note>
         <note priority="medium" time="1546045915">
             Test randoms from feed

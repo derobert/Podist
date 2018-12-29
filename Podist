@@ -146,7 +146,6 @@ sub register_commands {
 			originalize => \&originalize,
 
 			playlist  => \&playlist,
-			all_playlists => \&all_playlists,
 			archive   => \&archive,
 			
 			process   => \&process,
@@ -1316,13 +1315,6 @@ sub speak {
 	}
 
 	LOGDIE("Unreachable code reached");
-}
-
-sub all_playlists {
-	while (1) {
-		playlist();
-		$DB->commit;
-	}
 }
 
 sub playlist_valid_where {
