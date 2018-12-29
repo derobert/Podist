@@ -73,7 +73,7 @@ while IFS= read -r -d $'\0' -u 8 fin; do # fd 8 is "find" at end of loop; pipe w
 	touch -m -r "$fin" "$fout"
 	
 	echo -e "done.\n" >&2
-done 8< <(find -L random.in -type f -print0)
+done 8< <(find -L random.in/ -type f -print0)
 
 echo -n 'Cleaning non-matching opus files from random... ' >&2
 deleted=0
@@ -82,6 +82,6 @@ while IFS= read -r -d $'\0' -u 9 f; do
 		let ++deleted
 		rm "$f"
 	fi
-done 9< <(find random -name '*.opus' -type f -print0)
-find random -type d -empty -delete
+done 9< <(find random/ -name '*.opus' -type f -print0)
+find random/ -type d -empty -delete
 echo "$deleted removed." >&2
