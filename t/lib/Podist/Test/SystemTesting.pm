@@ -30,6 +30,7 @@ sub setup_config {
 	my %opts = @_;
 
 	my $conf = read_text($opts{in});
+	long_note('Read in config:', $conf);
 	$conf =~ s!\$HOME/Podist/!$opts{store}/!g or die "No storage found";
 	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
 		or die "Couldn't find NotYetConfigured";
