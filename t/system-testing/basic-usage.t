@@ -21,7 +21,7 @@ use DBI;
 # Podist install). So we won't run unless LIVE_DANGEROUSLY=1 is set.
 # Note the GitLab CI sets this, as its run in a docker container, so no
 # existing Podist to worry about.
-plan_dangerously_or_exit tests => 38;
+plan_dangerously_or_exit tests => 40;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -256,6 +256,14 @@ subtest 'Podist history OK' => sub {
 };
 
 # 38
+run3 [@$podist, qw(fetch -f 1)], undef, \$stdout, \$stderr;
+check_run("Fetches specific feed", $stdout, $stderr);
+
+# 39
+run3 [@$podist, qw(fetch -l 10)], undef, \$stdout, \$stderr;
+check_run("Fetches with limit override", $stdout, $stderr);
+
+# 40
 run3 [@$podist, qw(cleanup)], undef, \$stdout, \$stderr;
 check_run("Cleanup runs", $stdout, $stderr);
 
