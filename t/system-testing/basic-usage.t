@@ -200,7 +200,7 @@ run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing after processing:\n$stdout");
 
 # 35
-run3 [@$podist, qw(archive 2)], undef, \$stdout, \$stderr;
+run3 [@$podist, 'archive', 'Playlist 002.m3u'], undef, \$stdout, \$stderr;
 check_run("Archived second playlist", $stdout, $stderr);
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing AFTER archive:\n$stdout");
