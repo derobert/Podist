@@ -215,10 +215,10 @@
         <note priority="verylow" time="1546046697">
             COLUMNS and LINES both set and unset in env
         </note>
-        <note priority="verylow" time="1546046574">
+        <note priority="verylow" time="1546046574" done="1546058864">
             Test --man
         </note>
-        <note priority="verylow" time="1546046567">
+        <note priority="verylow" time="1546046567" done="1546058866">
             Test --help
         </note>
         <note priority="verylow" time="1546046047">

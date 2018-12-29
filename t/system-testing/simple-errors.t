@@ -1,6 +1,6 @@
 use 5.024;
 use IPC::Run3;
-use Test::Exception;
+use Test::More;
 use Podist::Test::SystemTesting qw(basic_podist_setup check_run plan_dangerously_or_exit);
 
 plan_dangerously_or_exit tests => 7;
