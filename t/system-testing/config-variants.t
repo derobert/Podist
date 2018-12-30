@@ -16,7 +16,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 9;
+plan_dangerously_or_exit tests => 13;
 my ($stdout, $stderr, $res);
 
 # Make Podist actually run with coverage...
@@ -38,6 +38,10 @@ my $config = $Cfg->read_config(
 long_note('Initial parsed config:', pp($config));
 
 my $dbh = connect_to_podist_db($setup->{db_file}, 0);
+
+# hopefully get only one episode, save time processing. This will be
+# written to the config file in the next subtest.
+$config->{playlist}{targetduration} = 1800;
 
 subtest 'Five playlist things off' => sub {
 	plan tests => 4;
@@ -222,4 +226,68 @@ subtest 'Four feed options on' => sub {
 	}
 
 	done_testing();
+};
+
+# unfortunately, the next bit of test require processing. This will take
+# a while!
+run3 [@{$setup->{podist}}, 'process'], undef, \$stdout, \$stderr;
+check_run("Processed audio", $stdout, $stderr);
+
+subtest 'Test archive speech, delete processed' => sub {
+	plan tests => 2;
+
+	local $config->{archival}{processed} = 0;
+	local $config->{archival}{speech} = 1;
+
+	lives_ok {
+		$Cfg->write_config(
+			conf_file => $setup->{conf_file},
+			config    => $config
+			)
+	} 'wrote new config';
+
+	run3 [@{$setup->{podist}}, 'archive', '1'], undef, \$stdout, \$stderr;
+	check_run("Archived playlist 1", $stdout, $stderr);
+
+};
+
+subtest 'Test archive speech & processed' => sub {
+	plan tests => 2;
+
+	local $config->{archival}{processed} = 1;
+	local $config->{archival}{speech} = 1;
+
+	lives_ok {
+		$Cfg->write_config(
+			conf_file => $setup->{conf_file},
+			config    => $config
+			)
+	} 'wrote new config';
+
+	TODO: {
+		$TODO = 'archive / processed = 1 not yet implemented';
+		run3 [@{$setup->{podist}}, 'archive', '2'], undef, \$stdout, \$stderr;
+		check_run("Archived playlist 2", $stdout, $stderr);
+	}
+
+};
+
+subtest 'Test throw away speech & processed' => sub {
+	plan tests => 2;
+
+	local $config->{archival}{processed} = 0;
+	local $config->{archival}{speech} = 0;
+
+	lives_ok {
+		$Cfg->write_config(
+			conf_file => $setup->{conf_file},
+			config    => $config
+			)
+	} 'wrote new config';
+
+	TODO: {
+		$TODO = 'archive / speech = 0 not yet implemented';
+		run3 [@{$setup->{podist}}, 'archive', '3'], undef, \$stdout, \$stderr;
+		check_run("Archived playlist 3", $stdout, $stderr);
+	}
 };

@@ -84,8 +84,17 @@
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
     </note>
-    <note priority="medium" time="1546158756">
-        feed / include / speech is not yet implemented; marked as TODO in Podist
+    <note priority="medium" time="1546194878">
+        Implement all the TODO features
+        <note priority="medium" time="1546195033">
+            archival / speech = 0
+        </note>
+        <note priority="medium" time="1546194906">
+            archive / processed = 1
+        </note>
+        <note priority="medium" time="1546158756">
+            feed / include / speech is not yet implemented; marked as TODO in Podist
+        </note>
     </note>
     <note priority="medium" time="1530643199">
         Way to grab first X items when limit is exceeded (instead of rolling back and grabbing none). Good for long podcasts where maybe you want to sample the newest episodes.
@@ -353,10 +362,10 @@
         <note priority="high" time="1546046399" done="1546158773">
             Test config variants: speech in feed
         </note>
-        <note priority="high" time="1546046231">
+        <note priority="high" time="1546046231" done="1546194565">
             Test config variants: Do not archive speech
         </note>
-        <note priority="high" time="1546046220">
+        <note priority="high" time="1546046220" done="1546194568">
             Test config variants: Archive processed
         </note>
         <note priority="high" time="1546045787">
@@ -367,6 +376,9 @@
         </note>
         <note priority="high" time="1518160516" done="1546044724">
             Probably can use git-worktree to check out old versions to test migration between each DB version.
+        </note>
+        <note priority="veryhigh" time="1546193954">
+            Add some way to force the processing into minimal mode, to save time in system tests. Processing has its own testing anyway.
         </note>
         <note priority="veryhigh" time="1546045707">
             Test upgrades with enclosures, playlists, archived playlists
