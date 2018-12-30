@@ -84,6 +84,9 @@
     <note priority="low" time="1222403916" done="1433255150">
         Implement "status" command
     </note>
+    <note priority="medium" time="1546158756">
+        feed / include / speech is not yet implemented; marked as TODO in Podist
+    </note>
     <note priority="medium" time="1530643199">
         Way to grab first X items when limit is exceeded (instead of rolling back and grabbing none). Good for long podcasts where maybe you want to sample the newest episodes.
         <note priority="medium" time="1535223324">
@@ -206,11 +209,17 @@
     </note>
     <note priority="veryhigh" time="1433480122">
         Desperately need basic test suite. (Do the database migrations work? Who knows...)
-        <note priority="verylow" time="1546046938">
+        <note priority="verylow" time="1546046938" done="1546124543">
             Config error: invalid ignore regex (fail to compile regex)
+            <comment>
+                config.t now tests this
+            </comment>
         </note>
-        <note priority="verylow" time="1546046911">
+        <note priority="verylow" time="1546046911" done="1546163941">
             Playlist durations specified in seconds, minutes, and hours in config.
+            <comment>
+                Actually done a few commits back, with the Config.pm tests.
+            </comment>
         </note>
         <note priority="verylow" time="1546046769">
             Test getting terminal size when running on a terminal (e.g., pty)
@@ -227,19 +236,19 @@
         <note priority="verylow" time="1546046047">
             Test random item distribution is as configured
         </note>
-        <note priority="verylow" time="1546045966">
+        <note priority="verylow" time="1546045966" done="1546163883">
             Test config variants: announce end
         </note>
-        <note priority="verylow" time="1546045957">
+        <note priority="verylow" time="1546045957" done="1546163886">
             Test config variants: leadout length = 0
         </note>
-        <note priority="verylow" time="1546045947">
+        <note priority="verylow" time="1546045947" done="1546163890">
             Test config variants: announce leadout
         </note>
         <note priority="verylow" time="1546045930">
             Test config variants: reset consecutive
         </note>
-        <note priority="verylow" time="1546045842">
+        <note priority="verylow" time="1546045842" done="1546163896">
             Test config variants: no begin announcement
         </note>
         <note priority="verylow" time="1546045528">
@@ -299,10 +308,10 @@
         <note priority="low" time="1530249915">
             Can actually test hours/day and other stats to maybe someday be confident they're right.
         </note>
-        <note priority="medium" time="1546046426">
+        <note priority="medium" time="1546046426" done="1546161052">
             Test config variants: leadout in feed
         </note>
-        <note priority="medium" time="1546046418">
+        <note priority="medium" time="1546046418" done="1546161060">
             Test config variants: intermissions NOT in feed
         </note>
         <note priority="medium" time="1546046122" done="1546058715">
@@ -311,7 +320,7 @@
                 Got rid of it. Wasn't even documented.
             </comment>
         </note>
-        <note priority="medium" time="1546045915">
+        <note priority="medium" time="1546045915" done="1546166033">
             Test randoms from feed
         </note>
         <note priority="medium" time="1546045899">
@@ -338,10 +347,10 @@
         <note priority="medium" time="1546044887">
             Test silly feeds: No guid
         </note>
-        <note priority="high" time="1546046453">
+        <note priority="high" time="1546046453" done="1546158769">
             Test config variants: generated feed date fudging
         </note>
-        <note priority="high" time="1546046399">
+        <note priority="high" time="1546046399" done="1546158773">
             Test config variants: speech in feed
         </note>
         <note priority="high" time="1546046231">

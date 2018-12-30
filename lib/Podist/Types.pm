@@ -1,5 +1,6 @@
 package Podist::Types;
 use Moose::Util::TypeConstraints;
+use File::Spec;
 
 #<<< Perltidy destroys this...
 
@@ -40,5 +41,20 @@ coerce 'Podist::Quality',
 			and return 1000*$1;
 		die "Unparsable quality $_";
 	};
+
+subtype 'Podist::FilePath'
+	=> as 'Str'
+	=> where { -f $_ }
+	=> message { 'File must exist and be a file' };
+
+subtype 'Podist::AbsoluteDirPath'
+	=> as 'Str'
+	=> where { File::Spec->file_name_is_absolute($_) && -d $_ }
+	=> message { 'Directory must exist and be absolute' };
+
+coerce 'Podist::AbsoluteDirPath',
+	from 'Str',
+	via { File::Spec->rel2abs($_) };
+
 #>>>
 1;

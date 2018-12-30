@@ -2,16 +2,24 @@ package Podist::Test::SystemTesting;
 use 5.024;
 use strict;
 
+use DBI;
 use File::Copy qw(copy);
+use File::pushd qw(pushd);
 use File::Slurper qw(read_text write_text);
+use File::Spec;
 use File::Temp qw();
 use IPC::Run3;
 use Test::Exception;
 use Test::More;
+use Podist::Test::Notes qw(long_note);
 
 use base qw(Exporter);
-our @EXPORT_OK = qw(plan_dangerously_or_exit setup_config check_run
-	basic_podist_setup long_note);
+our @EXPORT_OK = qw(
+	plan_dangerously_or_exit setup_config check_run basic_podist_setup
+	long_note add_test_feeds add_test_randoms connect_to_podist_db
+);
+
+our $FEED_DIR = 't-gen/feeds/v1';
 
 sub plan_dangerously_or_exit {
 	if (!$ENV{LIVE_DANGEROUSLY}) {
@@ -30,6 +38,7 @@ sub setup_config {
 	my %opts = @_;
 
 	my $conf = read_text($opts{in});
+	long_note('Read in config:', $conf);
 	$conf =~ s!\$HOME/Podist/!$opts{store}/!g or die "No storage found";
 	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
 		or die "Couldn't find NotYetConfigured";
@@ -45,16 +54,6 @@ sub setup_config {
 	write_text($opts{out}, $conf);
 
 	return;
-}
-
-sub long_note {
-	my ($header, $note) = @_;
-	state $note_number = 0;
-
-	my $ident = sprintf('%02X', $note_number++);
-	$note =~ s/^/ <$ident>  /mg;
-	chomp($note);
-	note("$header\n$note\n *--*--END");
 }
 
 sub check_run {
@@ -125,4 +124,83 @@ sub basic_podist_setup {
 		db_file       => $db_file,
 		podist        => \@podist,
 	};
+}
+
+sub add_test_feeds {
+	my %opts = @_;
+
+	my $podist  = $opts{podist} // die "Missing argument: podist";
+	my $n_feeds = $opts{n_base_feeds} // 8;
+	my $catch   = $opts{catch} // 1;
+
+	die "n_base_feeds must be 0..8" if ($n_feeds < 0 || $n_feeds > 8);
+	$catch = $catch ? 1 : 0;
+
+	subtest 'Adding test feeds' => sub {
+		plan tests => ($n_feeds + $catch);
+		my ($stdout, $stderr);
+
+		foreach my $feed ( 1 .. $n_feeds) {
+			run3 [@$podist, 'subscribe', "Feed $feed", "file://" . File::Spec->rel2abs("$FEED_DIR/feed_$feed.xml")], undef, \$stdout, \$stderr;
+			check_run("Podist subscribe Feed #$feed", $stdout, $stderr);
+		}
+
+		if ($catch) {
+			run3 [@$podist, qw(catch -l 999)], undef, \$stdout, \$stderr;
+			check_run("Catch without rollback", $stdout, $stderr);
+		} else {
+			note('Catch not requested, not run.');
+		}
+	};
+
+	return;
+}
+
+sub add_test_randoms {
+	my %opts = @_;
+
+	my $num       = $opts{how_many} // 1;
+	my $store_dir = $opts{store_dir} // die "missing argument: store_dir";
+
+	$num == 1 or die "Only one random at the moment";
+
+	subtest 'Setting up random items' => sub {
+		plan tests => 2;
+		my ($stdout, $stderr);
+
+		mkdir("$store_dir/random");
+		mkdir("$store_dir/random.in");
+		ok(copy("t-data/MountainKing.flac", "$store_dir/random.in/"),
+			'Copied MountainKing.flac to random.in');
+		my $make_random = File::Spec->rel2abs('make-random');
+		{
+			my $dir = pushd($store_dir);
+			run3 [$make_random], undef, \$stdout, \$stderr;
+			check_run("Generated random items", $stdout, $stderr);
+		}
+
+	};
+
+	return;
+}
+
+sub connect_to_podist_db {
+	my ($dbfile, $readonly) = @_;
+	defined $dbfile or die "Required parameter (db file) missing";
+	$readonly //= 1;
+
+	my $dbh;
+	lives_ok {
+		$dbh = DBI->connect(
+			"dbi:SQLite:dbname=$dbfile",
+			'', '',
+			{
+				ReadOnly         => $readonly,
+				AutoCommit       => 1,
+				RaiseError       => 1,
+				FetchHashKeyName => 'NAME_lc'
+			});
+	} q{"Connected" to Podist database};
+
+	return $dbh;
 }

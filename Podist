@@ -50,6 +50,7 @@ use Pod::Usage;
 
 use FindBin;
 use lib "$FindBin::RealBin/lib";
+use Podist::Config;
 use Podist::Database;
 use Podist::Misc qw(inherit_proc_profiles);
 use Podist::Processor;
@@ -1629,8 +1630,17 @@ sub setup {
 		or die "Could not mkdir $confdir: $!";
 
 	# read config and install sub
-	my $config = setup_config($confdir);
-	*CONFIG = sub() { $config };
+	my $config
+		= Podist::Config->new->read_or_create_config(conf_dir => $confdir)
+		or die "Failed to get any config; very malformed config file?";
+
+	{
+		# work around "constants from lexical variables potentially
+		# modified elsewhere are deprecated" by making it clear this
+		# won't be modified.
+		my $grumble = $config;
+		*CONFIG = sub() { $grumble };
+	}
 
 	init_logging();
 
@@ -1716,266 +1726,6 @@ L4P
 	}
 	TRACE("Log4perl configured and hopefully ready.");
 }
-
-sub setup_config {
-	my ($confdir) = @_;
-	my $conffile = "$confdir/podist.conf";
-
-	my $default_config = <<CONF;
-# Once you've reviewed this file, change this to false.
-NotYetConfigured true
-ConfigVersion $CONFIG_VERSION
-DataDir $confdir # e.g., \$HOME/.podist
-
-<storage>
-	PendingMedia      \$HOME/Podist/media-pending
-	UnusableMedia     \$HOME/Podist/media-unusable
-	OriginalMedia     \$HOME/Podist/playlists/original
-	ProcessedMedia    \$HOME/Podist/playlists/processed
-	ArchivedMedia     \$HOME/Podist/archived/original
-	ArchivedProcessed \$HOME/Podist/archived/processed
-
-	Playlists         \$HOME/Podist/playlists
-	ArchivedPlaylists \$HOME/Podist/archived
-
-	RandomMedia       \$HOME/Podist/random
-</storage>
-
-<archival>
-	# media is always yes
-	Processed   no
-	Speech      yes
-</archival>
-
-<feed>
-	BaseURL      http://yourserver/podist/
-	FudgeDates   no
-	<include>
-		Speeches        no
-		Intermissions   yes
-		Leadout         no
-	</include>
-</feed>
-
-<article>
-	# Note this is after basic title whitespace normalization.
-	TitleIgnoreRE   "(?i:[\[(]rebroadcast[\])])$"
-</article>
-
-<playlist>
-	# These are constraints for playlist generation. They are followed
-	# as:
-	#   1. If there are less than MinimumFiles, add any valid file (defined
-	#      below)
-	#   2. If there are MaximumFiles, stop. This playlist is done.
-	#   3. If the playlist duration is less than TargetDuration, add any
-	#      valid file such that the duration does not exceed
-	#      MaximumDuration. If there are no files to add, stop, this
-	#      playlist is done.
-	#   4. If the playlist duration is at least TargetDuration, stop.
-	#      This playlist is done.
-	# Those are repeated until hitting a "stop", of course.
-	#
-	# As a final check, before comitting the playlist, if the total
-	# length is less than MinimumDuration, abort.
-	#
-	# A valid file is any file that is:
-	#   - the oldest unplaylisted file in its feed, if the feed is ordered
-	#   - any unplaylisted file in an unordered feed
-	# and does not put more than MaxConsecutive files from the same feed
-	# in a row and does not exceed MaximumPerFeed files from that feed
-	# in the current playlist.
-	MinimumDuration    1800
-	TargetDuration     3600
-	MaximumDuration    7200
-	MinimumFiles       1
-	MaximumFiles       5
-	MaximumConsecutive 2
-	MaximumPerFeed     4
-
-	# How do we pick between multiple valid options, all of which follow
-	# the rules?
-	#   - Random: pick completely at random
-	#   - RandomFeed: pick at random, but make sure each feed has an
-	#                 equal chance even if feed A has 10 eps, and feed B
-	#                 has 300.
-	#   - Longest: Pick the longest (duration) 
-	#   - Oldest: Pick the oldest
-	ChoiceMethod       RandomFeed
-	
-	# What should the chance be of throwing in a random item after each
-	# played item?
-	#   - Mode: Count, Time
-	#   - M: Slope
-	#   - B: Y-intercept, aka constan in constant func
-	# That is, f(x) = mx + b
-	#
-	# NOTE: Random items are ignored in length/duration constraints
-	#       (above).
-	RandomChanceMode   Time
-	RandomChanceM      1/7200
-	RandomChanceB      0.2
-	
-	# How often should we use \$RandomMedia vs. feeds marked as music in
-	# the database? 0 is always \$RandomMedia, 1 is always music feeds.
-	# Note that if there aren't any unplayed items in music feeds, will
-	# fall back to \$RandomMedia. (Note: music feeds always use
-	# ChoiceMethod random)
-	RandomFeedRatio    1/3
-
-	# If we insert a random item, does this reset the consecutive same
-	# podcast counter?
-	ResetConsecutive   yes
-
-	# Specify how many random items to play after the end of podcasts on
-	# a playlist (so you don't have to switch while driving)
-	LeadoutLength 5
-
-	# Shall we put an announcement at the beginning and/or end of the
-	# playlists we generate using a TTS (see the speech section below)
-	AnnounceBegin Yes
-	AnnounceLeadout Yes
-	AnnounceEnd   Yes
-</playlist>
-
-<processing>
-    <profile default>
-        Loudness       -23 LUFS
-        LoudnessRange  unlimited
-        Encoder        lame-vbr   # lame-vbr, vorbis, opus
-        EncodeQuality  2          # meaning depends on Encoder
-    </profile>
-    <profile compress>
-        BasedOn        default
-        LoudnessRange  5 LU
-    </profile>
-</processing>
-
-<speech>
-	# Which TTS engine shall we use? Currently, only Festival is
-	# supported.
-	Engine Festival
-
-	# The voice to use
-	Voice kal_diphone
-
-	# How loud to make the audio
-	Volume 12dbFS
-
-	# Which format to get the audio in enventually. Options are:
-	#   wav, mp3, ogg (listed largest -> smallest)
-	Format ogg
-
-	# What to say
-	<message>
-		Begin   Start of playlist __CURRENT__.
-		Leadout End of podcasts in playlist __CURRENT__.
-		End     End of playlist __CURRENT__.
-	</message>
-</speech>
-
-<database>
-	DSN dbi:SQLite:dbname=\$DataDir/podist.db
-	Username   # fill in if DB requires
-	Password   # fill in if DB requires
-</database>
-
-<logging>
-	Simple true
-	Level info   # fatal | error | warn | info | debug | trace
-
-	### Alternatively, for more control,
-	# Simple false
-	# Config \$DataDir/log4perl.conf
-</logging>
-CONF
-
-	-e $conffile
-		or write_file($conffile, \$default_config);
-
-	# Don't repeat yourself.
-	#
-	# Unfortunately, we need the string representation of the config (so
-	# we can have comments in it), hopefully this isn't too slow...
-	my %parse_opts_common = (
-		-AllowMultiOptions    => 0,
-		-LowerCaseNames       => 1,
-		-UseApacheInclude     => 1,
-		-IncludeRelative      => 1,
-		-IncludeDirectories   => 1,
-		-IncludeGlob          => 1,
-		-IncludeAgain         => 1,
-		-MergeDuplicateBlocks => 1,
-		-AutoLaunder           => 1,
-		-AutoTrue              => 1,
-		-InterPolateVars       => 1,
-		-InterPolateEnv        => 1,
-		-StrictVars            => 1,
-		-SplitPolicy           => 'whitespace',
-
-	);
-	my $cg_def = new Config::General(
-		-String               => $default_config,
-		%parse_opts_common,
-	);
-	my %defs = $cg_def->getall;
-	$defs{configversion} = 1; # V1 config did not have this.
-
-	# Yes, in the first-use case, this will be the exact same as the
-	# defaults, but oh well.
-	my $cg_conf = new Config::General(
-		-ConfigFile            => $conffile,
-		-MergeDuplicateOptions => 1,
-		-DefaultConfig         => \%defs,
-		%parse_opts_common,
-	);
-
-	my $config = { $cg_conf->getall };
-
-	# durations can have H or M after them; normalize to seconds. If
-	# someone explicitly specified S for seconds, that's fine too...
-	foreach my $v (qw(minimumduration targetduration maximumduration)) {
-		$config->{playlist}{$v} =~ /^(\d+)\s*S$/i
-			and $config->{playlist}{$v} = $1;
-		$config->{playlist}{$v} =~ /^(\d+)\s*M$/i
-			and $config->{playlist}{$v} = $1 * 60;
-		$config->{playlist}{$v} =~ /^(\d+)\s*H$/i
-			and $config->{playlist}{$v} = $1 * 3600;
-	}
-
-	# change fractions for to decimals
-	foreach my $v (qw(randomchancem randomchanceb randomfeedratio)) {
-		$config->{playlist}{$v} =~ m!(\d+)/(\d+)!
-			and $config->{playlist}{$v} = $1/$2;
-	}
-
-	# compile TitleIgnoreRE regex.
-	eval {
-		$config->{article}{titleignorere}
-			= qr/$config->{article}{titleignorere}/;
-	};
-	if ($@) {
-		# can't use ERROR yet. Log4perl isn't set up.
-		(my $err = $@) =~ s/ at \S+ line \d+\.\n$//;
-		print STDERR <<ERR;
-Invalid configuration file found. Expected a valid regular expression
-for the TitleIgnoreRE option in the <article> block. Attempting to
-compile:
-
-   $config->{article}{titleignorere}
-
-gave the following Perl error:
-
-   $err
-
-Exiting.
-ERR
-		exit 1;
-	}
-
-	return $config;
-}
-
 
 sub USER_AGENT() {
 	state $agent;

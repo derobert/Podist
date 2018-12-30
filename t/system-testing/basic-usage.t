@@ -14,8 +14,9 @@ use Test::More;
 use Text::CSV;
 use Podist::Test::SystemTesting qw(
 	setup_config check_run plan_dangerously_or_exit basic_podist_setup
-	long_note
+	add_test_feeds add_test_randoms connect_to_podist_db
 );
+use Podist::Test::Notes qw(long_note);
 use DBI;
 
 # This test is somewhat dangerous (e.g., might ignore the non-default
@@ -23,7 +24,7 @@ use DBI;
 # Podist install). So we won't run unless LIVE_DANGEROUSLY=1 is set.
 # Note the GitLab CI sets this, as its run in a docker container, so no
 # existing Podist to worry about.
-plan_dangerously_or_exit tests => 41;
+plan_dangerously_or_exit tests => 33;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -40,46 +41,36 @@ my $store_dir = $podist_setup->{store_dir};
 my $podist = $podist_setup->{podist};
 
 # 2
-my $dbh;
-lives_ok {
-	$dbh = DBI->connect(
-		"dbi:SQLite:dbname=$podist_setup->{db_file}",
-		'', '',
-		{
-			ReadOnly         => 1,
-			AutoCommit       => 1,
-			RaiseError       => 1,
-			FetchHashKeyName => 'NAME_lc'
-		});
-} q{"Connected" to Podist database};
+my $dbh = connect_to_podist_db($podist_setup->{db_file});
 
-# 3 .. 10
-foreach my $feed ( 1 .. 8) {
-	run3 [@$podist, 'subscribe', "Feed $feed", "file://" . File::Spec->rel2abs("$FEED_DIR/feed_$feed.xml")], undef, \$stdout, \$stderr;
-	check_run("Podist subscribe Feed #$feed", $stdout, $stderr);
-}
+# 3
+add_test_feeds(
+	podist       => $podist,
+	n_base_feeds => 8,
+	catch        => 0,
+);
 
-# 11
+# 4
 run3 [@$podist, qw(catch -l 1)], undef, \$stdout, \$stderr;
 check_run("Catch with rollback", $stdout, $stderr);
 
-# 12
+# 5
 ($res) = $dbh->selectrow_array(q{SELECT count(*) FROM enclosures});
 is($res, 0, 'No enclosures in DB after rollback');
 
-# 13
+# 6
 run3 [@$podist, qw(catch -l 999)], undef, \$stdout, \$stderr;
 check_run("Catch without rollback", $stdout, $stderr);
 
-# 14
+# 7
 ($res) = $dbh->selectrow_array(q{SELECT count(*) FROM enclosures});
 is($res, 32, '32 enclosures after catch');
 
-# 15
+# 8
 run3 [@$podist, 'status'], undef, \$stdout, \$stderr;
 check_run("Status after catch", $stdout, $stderr);
 
-# 16
+# 9
 TODO: {
 	local $TODO = 'Podist bug, currently fails w/o random items';
 	# Subtest to work around Test::More bug(?) where it fails to notice
@@ -90,7 +81,7 @@ TODO: {
 	};
 };
 
-# 17
+# 10
 TODO: {
 	local $TODO = 'Podist bug, does not clean up speech on playlist fail';
 	my $files = 0;
@@ -100,19 +91,10 @@ TODO: {
 	find(sub { -f and unlink }, "$store_dir/playlists/processed");
 }
 
-# 18 .. 19
-mkdir("$store_dir/random");
-mkdir("$store_dir/random.in");
-ok(copy("t-data/MountainKing.flac", "$store_dir/random.in/"),
-	'Copied MountainKing.flac to random.in');
-my $make_random = File::Spec->rel2abs('make-random');
-{
-	my $dir = pushd($store_dir);
-	run3 [$make_random], undef, \$stdout, \$stderr;
-	check_run("Generated random items", $stdout, $stderr);
-}
+# 11
+add_test_randoms(store_dir => $store_dir, how_many => 1);
 
-# 20
+# 12
 subtest 'Podist list -r OK' => sub {
 	plan tests => 2;
 	local $ENV{COLUMNS} = 500; # avoid wrapping
@@ -134,11 +116,11 @@ subtest 'Podist list -r OK' => sub {
 	}
 };
 
-# 21
+# 13
 run3 [@$podist, 'playlist'], undef, \$stdout, \$stderr;
 check_run("Generated playlist with randoms", $stdout, $stderr);
 
-# 22
+# 14
 $res = $dbh->selectrow_arrayref(<<QUERY);
 	SELECT playlist_no, playlist_archived, playlist_file FROM playlists
 QUERY
@@ -147,19 +129,19 @@ is_deeply($res, [ 1, undef, 'Playlist 001.m3u' ], 'Playlist DB entry OK');
 # count items that should be on playlist according to db.
 my $db_item_count = 0;
 
-# 23
+# 15
 ($res) = $dbh->selectrow_array(q{SELECT COUNT(*) FROM random_uses});
 ok($res > 0, 'Random music uses recorded in DB');
 note("DB random music count: $res");
 $db_item_count += $res;
 
-# 24
+# 16
 ($res) = $dbh->selectrow_array(q{SELECT COUNT(*) FROM speeches});
 ok($res > 0, 'Speeches recorded in DB');
 note("DB speeches count: $res");
 $db_item_count += $res;
 
-# 25
+# 17
 ($res) = $dbh->selectrow_array(<<QUERY);
 	SELECT COUNT(*) FROM enclosures WHERE playlist_no IS NOT NULL
 QUERY
@@ -169,18 +151,18 @@ $db_item_count += $res;
 
 note("Database says to expect $db_item_count items on the playlist");
 
-# 26
+# 18
 my @playlist;
 lives_ok {
 	@playlist = read_lines("$store_dir/playlists/Playlist 001.m3u")
 } 'Read generated playlist';
 note("Generated playlist:\n".pp(@playlist));
 
-# 27
+# 19
 is(scalar(@playlist), $db_item_count,
 	"Found expected number of items in playlist");
 
-# 28
+# 20
 subtest 'Playlist items exist' => sub {
 	plan tests => scalar(@playlist);
 
@@ -189,12 +171,12 @@ subtest 'Playlist items exist' => sub {
 	}
 };
 
-# 29
+# 21
 run3 [@$podist, 'feed'], undef, \$stdout, \$stderr;
 check_run("Generated feed", $stdout, $stderr);
 note("Feed:\n", read_text("$store_dir/playlists/feed.xml"));
 
-# 30
+# 22
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing BEFORE archive:\n$stdout");
 run3 [@$podist, qw(archive 001)], undef, \$stdout, \$stderr;
@@ -202,34 +184,34 @@ check_run("Archived playlist", $stdout, $stderr);
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing AFTER archive:\n$stdout");
 
-# 31
+# 23
 ($res) = $dbh->selectrow_array(<<QUERY);
 	SELECT COUNT(*) FROM enclosures WHERE enclosure_store = 'original'
 QUERY
 is($res, 0, 'No remaining "original" enclosures after archive');
 
-# 32, 33
+# 24, 25
 $res = $dbh->selectrow_hashref(q{SELECT * FROM playlists});
 is($res->{playlist_no}, 1, 'Still playlist 1');
 ok(defined($res->{playlist_archived}), 'Has archival time');
 
-# 34
+# 26
 run3 [@$podist, 'playlist'], undef, \$stdout, \$stderr;
 check_run("Generated second playlist", $stdout, $stderr);
 
-# 35
+# 27
 run3 [@$podist, 'process'], undef, \$stdout, \$stderr;
 check_run("Ran audio processing", $stdout, $stderr);
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing after processing:\n$stdout");
 
-# 36
+# 28
 run3 [@$podist, 'archive', 'Playlist 002.m3u'], undef, \$stdout, \$stderr;
 check_run("Archived second playlist", $stdout, $stderr);
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing AFTER archive:\n$stdout");
 
-# 37
+# 29
 subtest 'Podist list -f OK' => sub {
 	plan tests => 9;
 	run3 [@$podist, qw(list -f)], undef, \$stdout, \$stderr;
@@ -250,7 +232,7 @@ subtest 'Podist list -f OK' => sub {
 	}
 };
 
-# 38
+# 30
 subtest 'Podist history OK' => sub {
 	plan tests => 4;
 	run3 [@$podist, qw(history)], undef, \$stdout, \$stderr;
@@ -279,15 +261,15 @@ subtest 'Podist history OK' => sub {
 	}
 };
 
-# 39
+# 31
 run3 [@$podist, qw(fetch -f 1)], undef, \$stdout, \$stderr;
 check_run("Fetches specific feed", $stdout, $stderr);
 
-# 40
+# 32
 run3 [@$podist, qw(fetch -l 10)], undef, \$stdout, \$stderr;
 check_run("Fetches with limit override", $stdout, $stderr);
 
-# 41
+# 33
 run3 [@$podist, qw(cleanup)], undef, \$stdout, \$stderr;
 check_run("Cleanup runs", $stdout, $stderr);
 
