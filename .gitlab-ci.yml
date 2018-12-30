@@ -22,6 +22,14 @@ before_script:
 after_script:
   - apt-get autoclean
 
+.common-script: &common-script
+  - if [ "$PODIST_CI_DO_COVERAGE" = "y" ]; then echo 'Doing coverage'; cover -delete; export HARNESS_PERL_SWITCHES='-MDevel::Cover=+ignore,^t\\/,+ignore,^\\/usr\\/'; fi
+  - PODIST_CI_PARALLEL=$( [ $(nproc) -gt 1 ] && echo 2 || echo 1)
+  - printf 'Running with prove -j%d\n' $PODIST_CI_PARALLEL
+  - LIVE_DANGEROUSLY=1 prove -a artifacts/tap/ -j$PODIST_CI_PARALLEL t/system-testing/basic-usage.t t/
+  - if [ "$PODIST_CI_DO_COVERAGE" = "y" ]; then cover -report html_basic -output artifacts/cover_html; fi
+
+
 test_stretch:
   cache:
     key: stretch
@@ -30,10 +38,9 @@ test_stretch:
       - .cache
   image: debian:stretch
   stage: test
-  script:
-    - cover -delete
-    - LIVE_DANGEROUSLY=1 HARNESS_PERL_SWITCHES=-MDevel::Cover=+ignore,^t\\/,+ignore,^\\/usr\\/ prove -a artifacts/tap/ -j2 t/system-testing/basic-usage.t t/
-    - cover -report html_basic -output artifacts/cover_html
+  variables:
+    PODIST_CI_DO_COVERAGE: 'y'
+  script: *common-script
   artifacts:
     paths:
       - artifacts
@@ -52,8 +59,9 @@ test_buster:
       - .cache
   image: debian:buster
   stage: test
-  script:
-    - LIVE_DANGEROUSLY=1 prove -a artifacts/tap/ -j2 t/system-testing/basic-usage.t t/
+  variables:
+    PODIST_CI_DO_COVERAGE: 'n'
+  script: *common-script
   artifacts:
     paths:
       - artifacts
