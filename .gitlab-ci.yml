@@ -32,7 +32,7 @@ test_stretch:
   stage: test
   script:
     - cover -delete
-    - LIVE_DANGEROUSLY=1 HARNESS_PERL_SWITCHES=-MDevel::Cover=+ignore,^t\\/,+ignore,^\\/usr\\/ prove -a artifacts/tap/
+    - LIVE_DANGEROUSLY=1 HARNESS_PERL_SWITCHES=-MDevel::Cover=+ignore,^t\\/,+ignore,^\\/usr\\/ prove -a artifacts/tap/ -j2 t/system-testing/basic-usage.t t/
     - cover -report html_basic -output artifacts/cover_html
   artifacts:
     paths:
@@ -53,7 +53,7 @@ test_buster:
   image: debian:buster
   stage: test
   script:
-    - LIVE_DANGEROUSLY=1 prove -a artifacts/tap/
+    - LIVE_DANGEROUSLY=1 prove -a artifacts/tap/ -j2 t/system-testing/basic-usage.t t/
   artifacts:
     paths:
       - artifacts
