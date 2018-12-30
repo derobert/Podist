@@ -16,7 +16,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 8;
+plan_dangerously_or_exit tests => 9;
 my ($stdout, $stderr, $res);
 
 # Make Podist actually run with coverage...
@@ -37,7 +37,7 @@ my $config = $Cfg->read_config(
 	conf_file => $setup->{conf_file});
 long_note('Initial parsed config:', pp($config));
 
-my $dbh = connect_to_podist_db($setup->{db_file});
+my $dbh = connect_to_podist_db($setup->{db_file}, 0);
 
 subtest 'Five playlist things off' => sub {
 	plan tests => 4;
@@ -73,7 +73,7 @@ subtest 'Five playlist things on' => sub {
 	local $config->{playlist}{announcebegin} = 1;
 	local $config->{playlist}{announceend} = 1;
 	local $config->{playlist}{announceleadout} = 1;
-	local $config->{playlist}{leadoutlength} = 20;
+	local $config->{playlist}{leadoutlength} = 50;
 	local $config->{playlist}{randomchanceb} = 1;
 	local $config->{playlist}{randomchancem} = 0;
 
@@ -95,12 +95,45 @@ subtest 'Five playlist things on' => sub {
 	($res) = $dbh->selectrow_array(
 		q{SELECT COUNT(*) FROM random_uses WHERE playlist_no = 2 AND random_use_reason = 'lead-out'}
 	);
-	is($res, 20, 'Twenty-item leadout on playlist 2');
+	is($res, 50, 'Twenty-item leadout on playlist 2');
 
 	($res) = $dbh->selectrow_array(
 		q{SELECT COUNT(*) FROM random_uses WHERE playlist_no = 2 AND random_use_reason = 'intermission'}
 	);
 	ok($res > 0, 'Intermissions exist on playlist 2');
+};
+
+subtest 'Fiddle feed options' => sub {
+	plan tests => 4;
+
+	local $config->{playlist}{randomchanceb} = 1;
+	local $config->{playlist}{randomchancem} = 0;
+	local $config->{playlist}{randomfeedratio} = 1;
+
+	lives_ok {
+		$Cfg->write_config(
+			conf_file => $setup->{conf_file},
+			config    => $config
+			)
+	} 'wrote new config';
+
+	# set two of the feeds to be music.
+	$dbh->do(q{UPDATE feeds SET feed_is_music = 1 WHERE feed_no IN (1,2)});
+
+	run3 [@{$setup->{podist}}, 'playlist'], undef, \$stdout, \$stderr;
+	check_run("Generated playlist", $stdout, $stderr);
+
+	ok($stderr =~ m!Adding random item .+/original/!,
+		'Added a random item from downloaded media');
+
+	($res) = $dbh->selectrow_array(<<QUERY);
+SELECT COUNT(*)
+  FROM articles a
+  JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
+  JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
+ WHERE a.feed_no IN (1,2) AND e.playlist_no = 3
+QUERY
+	ok($res > 0, "Used feed 1/2 ($res times)");
 };
 
 subtest 'Four feed options off' => sub {
@@ -181,7 +214,7 @@ subtest 'Four feed options on' => sub {
 	}
 	ok($rands > 0, "Has random media ($rands)");
 	is($last, 'random', 'Last is random, lead-out maybe working');
-	ok($rands >= 20, "More than 20 random media, lead-out must be working");
+	ok($rands >= 50, "More than 50 random media, lead-out must be working");
 
 	TODO: {
 		local $TODO = "Speeches not yet added to feeds";

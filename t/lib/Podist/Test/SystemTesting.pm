@@ -185,8 +185,9 @@ sub add_test_randoms {
 }
 
 sub connect_to_podist_db {
-	my $dbfile = shift;
+	my ($dbfile, $readonly) = @_;
 	defined $dbfile or die "Required parameter (db file) missing";
+	$readonly //= 1;
 
 	my $dbh;
 	lives_ok {
@@ -194,7 +195,7 @@ sub connect_to_podist_db {
 			"dbi:SQLite:dbname=$dbfile",
 			'', '',
 			{
-				ReadOnly         => 1,
+				ReadOnly         => $readonly,
 				AutoCommit       => 1,
 				RaiseError       => 1,
 				FetchHashKeyName => 'NAME_lc'
