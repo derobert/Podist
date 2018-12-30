@@ -8,6 +8,7 @@ use File::Temp qw();
 use IPC::Run3;
 use Test::Exception;
 use Test::More;
+use Podist::Test::Notes qw(long_note);
 
 use base qw(Exporter);
 our @EXPORT_OK = qw(plan_dangerously_or_exit setup_config check_run
@@ -46,16 +47,6 @@ sub setup_config {
 	write_text($opts{out}, $conf);
 
 	return;
-}
-
-sub long_note {
-	my ($header, $note) = @_;
-	state $note_number = 0;
-
-	my $ident = sprintf('%02X', $note_number++);
-	$note =~ s/^/ <$ident>  /mg;
-	chomp($note);
-	note("$header\n$note\n *--*--END");
 }
 
 sub check_run {

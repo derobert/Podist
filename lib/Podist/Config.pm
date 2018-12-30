@@ -3,6 +3,7 @@ use 5.024; # let's have new sane Unicode regex behavior
 use Moose;
 use namespace::autoclean;
 use Carp qw(confess);
+use Clone qw(clone);
 use Config::General;
 use File::Slurper qw(write_text);
 use MooseX::Params::Validate;
@@ -61,7 +62,7 @@ sub read_config {
 	);
 
 	my $cg = Config::General->new(
-		-String => $self->default_config_text(conf_dir => $confdir),
+		-String => $self->_default_config_text(conf_dir => $confdir),
 		%{$self->_parse_opts_common},
 	);
 	my %defs = $cg->getall;
@@ -79,9 +80,33 @@ sub read_config {
 	);
 
 	my $config = { $cg->getall };
-	$self->normalize_config($config);
+	$self->_normalize_config($config);
 
 	return $config;
+}
+
+sub write_config {
+	my ($self, $conffile, $config) = validated_list(
+		\@_,
+		conf_file => { isa => 'Str' }, # may not exist, so not FilePath
+		config => { isa => 'HashRef' },
+	);
+
+	# stringifying the regexp in TitleIgnoreRE results in adding more
+	# and more (?^u: ... ) to it, each time its saved. Work around it by
+	# pre-stringifying it. Of course, that means we need to copy the
+	# hash first.
+	if (exists $config->{article}{titleignorere}) {
+		$config = clone($config);
+		my ($re, $flags) = re::regexp_pattern($config->{article}{titleignorere});
+		$flags eq 'u' or confess "Unexpected TitleIgnoreRE flags: $flags";
+		$config->{article}{titleignorere} = $re;
+	}
+
+	my $cg = Config::General->new( $self->_parse_opts_common );
+	$cg->save_file($conffile, $config);
+
+	return;
 }
 
 sub read_or_create_config {
@@ -95,13 +120,13 @@ sub read_or_create_config {
 	# once when first setting up Podist.
 	-e $conffile
 		or write_text($conffile,
-		              $self->default_config_text(conf_dir => $confdir));
+		              $self->_default_config_text(conf_dir => $confdir));
 
 	return $self->read_config(conf_dir => $confdir,
 		conf_file => $conffile);
 }
 
-sub normalize_config {
+sub _normalize_config {
 	# NOTE: modifies passed config!
 	local $_;
 	my $self = shift;
@@ -168,7 +193,7 @@ ERR
 	return $res;
 }
 
-sub default_config_text {
+sub _default_config_text {
 	my ($self, $confdir) = validated_list(
 		\@_,
 		conf_dir => { isa => 'Podist::AbsoluteDirPath', coerce => 1 },
@@ -345,3 +370,111 @@ CONF
 }
 
 1;
+
+=encoding utf8
+
+=head1 NAME
+
+Podist::Config - configuration handling for Podist
+
+=head1 SYNOPSIS
+
+ my $Cfg = Podist::Config->new;
+ my $config = $Cfg->read_config(conf_dir => "$ENV{HOME}/.podist");
+
+=head1 DESCRIPTION
+
+Contains functions for handling the Podist configuration file, including
+generating the default (template) configuration. Also contains functions
+for editing configuration, used by the Podist tests.
+
+Podist configuration is based on L<Config::General>, with most of the
+convenience features allowed.
+
+Note that this class is, for historical reasons, not really very OO. It
+contains basically no state (and no user modifiable state). It mainly
+works by returning configuration hashrefs.
+
+=head2 PUBLIC METHODS
+
+=over
+
+=item read_config()
+
+Reads a Podist configuration file and returns a Podist configuration
+hash. Default values will be returned for things not present in the
+configuration file.
+
+Arguments:
+
+=over
+
+=item I<conf_dir>
+
+Required. Directory holding the Podist configuration file. This must
+already exist (and will be coerced to a absolute path, just in case).
+This is only used to compute some of the default values.
+
+=item I<conf_file>
+
+Required. Path of the configuration file. Must already exist.
+
+=back
+
+=item write_config()
+
+Writes a Podist configuration file. Note that there is no way to include
+comments with this method; ths method is intended only for the Podist
+tests (which need it for testing to make sure various configuration
+options work).
+
+Arguments:
+
+=over
+
+=item I<conf_file>
+
+File to write the configuration to. If it already exists, its
+overwritten.
+
+=item I<config>
+
+Podist configuration hashref. Note one special requirement: the
+TitleIgnoreRE regexp must be compiled with C<qr/WHATEVER/u>; this is the
+default for any half-recent version of Perl, when running with a C<use
+5.024> or similar in effect. Non-half-recent versions of Perl can't run
+Podist anyway. 
+
+=back
+
+=item read_or_create_config()
+
+Reads a Podist configuration from the given directory or, if it doesn't
+exist, creates a new default one. The new one will have
+C<$config->{notyetconfigured}> set to a true value, so you can test that
+to see if the user has configured Podist.
+
+The configuration file will be named F<podist.conf> inside the
+configuration directory.
+
+Arguments:
+
+=over
+
+=item I<conf_dir>
+
+Directory to find or create the Podist configuration in.
+
+=back
+
+=back
+
+=head1 AUTHOR
+
+L<Anthony DeRobertis|mailto:anthony@derobert.net>. This module is part of
+Podist; for details see L<https://gitlab.com/derobert/Podist>.
+
+=head1 COPYRIGHT
+
+Podist Copyright ©2008–2018 Anthony DeRobertis. Licensed under GPLv3 or
+later; see F<COPYING> for the complete text of the license.

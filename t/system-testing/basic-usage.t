@@ -14,8 +14,8 @@ use Test::More;
 use Text::CSV;
 use Podist::Test::SystemTesting qw(
 	setup_config check_run plan_dangerously_or_exit basic_podist_setup
-	long_note
 );
+use Podist::Test::Notes qw(long_note);
 use DBI;
 
 # This test is somewhat dangerous (e.g., might ignore the non-default

@@ -206,8 +206,11 @@
     </note>
     <note priority="veryhigh" time="1433480122">
         Desperately need basic test suite. (Do the database migrations work? Who knows...)
-        <note priority="verylow" time="1546046938">
+        <note priority="verylow" time="1546046938" done="1546124543">
             Config error: invalid ignore regex (fail to compile regex)
+            <comment>
+                config.t now tests this
+            </comment>
         </note>
         <note priority="verylow" time="1546046911">
             Playlist durations specified in seconds, minutes, and hours in config.
