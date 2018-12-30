@@ -14,7 +14,7 @@ use Test::More;
 use Text::CSV;
 use Podist::Test::SystemTesting qw(
 	setup_config check_run plan_dangerously_or_exit basic_podist_setup
-	add_test_feeds add_test_randoms
+	add_test_feeds add_test_randoms connect_to_podist_db
 );
 use Podist::Test::Notes qw(long_note);
 use DBI;
@@ -41,18 +41,7 @@ my $store_dir = $podist_setup->{store_dir};
 my $podist = $podist_setup->{podist};
 
 # 2
-my $dbh;
-lives_ok {
-	$dbh = DBI->connect(
-		"dbi:SQLite:dbname=$podist_setup->{db_file}",
-		'', '',
-		{
-			ReadOnly         => 1,
-			AutoCommit       => 1,
-			RaiseError       => 1,
-			FetchHashKeyName => 'NAME_lc'
-		});
-} q{"Connected" to Podist database};
+my $dbh = connect_to_podist_db($podist_setup->{db_file});
 
 # 3
 add_test_feeds(

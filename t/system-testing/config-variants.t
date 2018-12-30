@@ -12,12 +12,15 @@ use XML::FeedPP;
 use Podist::Config;
 use Podist::Test::SystemTesting qw(
 	setup_config check_run plan_dangerously_or_exit basic_podist_setup
-	add_test_feeds add_test_randoms
+	add_test_feeds add_test_randoms connect_to_podist_db
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 6;
-my ($stdout, $stderr);
+plan_dangerously_or_exit tests => 8;
+my ($stdout, $stderr, $res);
+
+# Make Podist actually run with coverage...
+$ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
 
 # Podist generates "fudged" dates by playlist_no * 1000 + item number, and
 # then taking that as a Unix timestamp (seconds after epoch). So this
@@ -28,16 +31,79 @@ my $setup = basic_podist_setup();
 add_test_feeds(podist => $setup->{podist});
 add_test_randoms(store_dir => $setup->{store_dir});
 
-run3 [@{$setup->{podist}}, 'playlist'], undef, \$stdout, \$stderr;
-check_run("Generated playlist", $stdout, $stderr);
-
 my $Cfg = Podist::Config->new;
 my $config = $Cfg->read_config(
 	conf_dir  => $setup->{conf_dir},
 	conf_file => $setup->{conf_file});
 long_note('Initial parsed config:', pp($config));
 
-subtest 'Four options off' => sub {
+my $dbh = connect_to_podist_db($setup->{db_file});
+
+subtest 'Five playlist things off' => sub {
+	plan tests => 4;
+	local $config->{playlist}{announcebegin} = 0;
+	local $config->{playlist}{announceend} = 0;
+	local $config->{playlist}{announceleadout} = 0;
+	local $config->{playlist}{leadoutlength} = 0;
+	local $config->{playlist}{randomchanceb} = 0;
+	local $config->{playlist}{randomchancem} = 0;
+
+	lives_ok {
+		$Cfg->write_config(
+			conf_file => $setup->{conf_file},
+			config    => $config
+			)
+	} 'wrote new config';
+
+	run3 [@{$setup->{podist}}, 'playlist'], undef, \$stdout, \$stderr;
+	check_run("Generated playlist", $stdout, $stderr);
+
+	($res) = $dbh->selectrow_array(
+		q{SELECT COUNT(*) FROM speeches WHERE playlist_no = 1}
+	);
+	is($res, 0, 'No speech on playlist 1');
+	($res) = $dbh->selectrow_array(
+		q{SELECT COUNT(*) FROM random_uses WHERE playlist_no = 1}
+	);
+	is($res, 0, 'No randoms on playlist 1');
+};
+
+subtest 'Five playlist things on' => sub {
+	plan tests => 5;
+	local $config->{playlist}{announcebegin} = 1;
+	local $config->{playlist}{announceend} = 1;
+	local $config->{playlist}{announceleadout} = 1;
+	local $config->{playlist}{leadoutlength} = 20;
+	local $config->{playlist}{randomchanceb} = 1;
+	local $config->{playlist}{randomchancem} = 0;
+
+	lives_ok {
+		$Cfg->write_config(
+			conf_file => $setup->{conf_file},
+			config    => $config
+			)
+	} 'wrote new config';
+
+	run3 [@{$setup->{podist}}, 'playlist'], undef, \$stdout, \$stderr;
+	check_run("Generated playlist", $stdout, $stderr);
+
+	($res) = $dbh->selectrow_array(
+		q{SELECT COUNT(*) FROM speeches WHERE playlist_no = 2}
+	);
+	is($res, 3, 'Three speeches on playlist 2');
+
+	($res) = $dbh->selectrow_array(
+		q{SELECT COUNT(*) FROM random_uses WHERE playlist_no = 2 AND random_use_reason = 'lead-out'}
+	);
+	is($res, 20, 'Twenty-item leadout on playlist 2');
+
+	($res) = $dbh->selectrow_array(
+		q{SELECT COUNT(*) FROM random_uses WHERE playlist_no = 2 AND random_use_reason = 'intermission'}
+	);
+	ok($res > 0, 'Intermissions exist on playlist 2');
+};
+
+subtest 'Four feed options off' => sub {
 	local $config->{feed}{fudgedates} = 0;
 	local $config->{feed}{include}{intermissions} = 0;
 	local $config->{feed}{include}{leadout} = 0;
@@ -70,7 +136,7 @@ subtest 'Four options off' => sub {
 	done_testing();
 };
 
-subtest 'Four options on' => sub {
+subtest 'Four feed options on' => sub {
 	local $config->{feed}{fudgedates} = 1;
 	local $config->{feed}{include}{intermissions} = 1;
 	local $config->{feed}{include}{leadout} = 1;
@@ -115,6 +181,7 @@ subtest 'Four options on' => sub {
 	}
 	ok($rands > 0, "Has random media ($rands)");
 	is($last, 'random', 'Last is random, lead-out maybe working');
+	ok($rands >= 20, "More than 20 random media, lead-out must be working");
 
 	TODO: {
 		local $TODO = "Speeches not yet added to feeds";

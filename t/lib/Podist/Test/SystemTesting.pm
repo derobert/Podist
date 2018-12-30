@@ -2,6 +2,7 @@ package Podist::Test::SystemTesting;
 use 5.024;
 use strict;
 
+use DBI;
 use File::Copy qw(copy);
 use File::pushd qw(pushd);
 use File::Slurper qw(read_text write_text);
@@ -15,7 +16,7 @@ use Podist::Test::Notes qw(long_note);
 use base qw(Exporter);
 our @EXPORT_OK = qw(
 	plan_dangerously_or_exit setup_config check_run basic_podist_setup
-	long_note add_test_feeds add_test_randoms
+	long_note add_test_feeds add_test_randoms connect_to_podist_db
 );
 
 our $FEED_DIR = 't-gen/feeds/v1';
@@ -181,4 +182,24 @@ sub add_test_randoms {
 	};
 
 	return;
+}
+
+sub connect_to_podist_db {
+	my $dbfile = shift;
+	defined $dbfile or die "Required parameter (db file) missing";
+
+	my $dbh;
+	lives_ok {
+		$dbh = DBI->connect(
+			"dbi:SQLite:dbname=$dbfile",
+			'', '',
+			{
+				ReadOnly         => 1,
+				AutoCommit       => 1,
+				RaiseError       => 1,
+				FetchHashKeyName => 'NAME_lc'
+			});
+	} q{"Connected" to Podist database};
+
+	return $dbh;
 }

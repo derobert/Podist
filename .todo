@@ -215,8 +215,11 @@
                 config.t now tests this
             </comment>
         </note>
-        <note priority="verylow" time="1546046911">
+        <note priority="verylow" time="1546046911" done="1546163941">
             Playlist durations specified in seconds, minutes, and hours in config.
+            <comment>
+                Actually done a few commits back, with the Config.pm tests.
+            </comment>
         </note>
         <note priority="verylow" time="1546046769">
             Test getting terminal size when running on a terminal (e.g., pty)
@@ -233,19 +236,19 @@
         <note priority="verylow" time="1546046047">
             Test random item distribution is as configured
         </note>
-        <note priority="verylow" time="1546045966">
+        <note priority="verylow" time="1546045966" done="1546163883">
             Test config variants: announce end
         </note>
-        <note priority="verylow" time="1546045957">
+        <note priority="verylow" time="1546045957" done="1546163886">
             Test config variants: leadout length = 0
         </note>
-        <note priority="verylow" time="1546045947">
+        <note priority="verylow" time="1546045947" done="1546163890">
             Test config variants: announce leadout
         </note>
         <note priority="verylow" time="1546045930">
             Test config variants: reset consecutive
         </note>
-        <note priority="verylow" time="1546045842">
+        <note priority="verylow" time="1546045842" done="1546163896">
             Test config variants: no begin announcement
         </note>
         <note priority="verylow" time="1546045528">
@@ -305,10 +308,10 @@
         <note priority="low" time="1530249915">
             Can actually test hours/day and other stats to maybe someday be confident they're right.
         </note>
-        <note priority="medium" time="1546046426">
+        <note priority="medium" time="1546046426" done="1546161052">
             Test config variants: leadout in feed
         </note>
-        <note priority="medium" time="1546046418">
+        <note priority="medium" time="1546046418" done="1546161060">
             Test config variants: intermissions NOT in feed
         </note>
         <note priority="medium" time="1546046122" done="1546058715">
