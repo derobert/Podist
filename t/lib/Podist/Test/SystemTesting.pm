@@ -37,13 +37,18 @@ sub setup_config {
 	#                  specified)
 	my %opts = @_;
 
+	# TODO: This works on regexp instead of Config.pm because it needs
+	#       to run with old versions that don't want to use the current
+	#       version's defaults. Improve this situation someday by making
+	#       Config.pm able to read w/o defaults.
 	my $conf = read_text($opts{in});
 	long_note('Read in config:', $conf);
 	$conf =~ s!\$HOME/Podist/!$opts{store}/!g or die "No storage found";
 	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
 		or die "Couldn't find NotYetConfigured";
-	$conf =~ s!^(\s*)Level info(\s+)!${1}Level trace$2!m
-		or die "Couldn't find logging Level";
+	my $logconf = File::Spec->rel2abs('t-conf/log4perl-test.conf');
+	$conf =~ s!^(\s*)Simple true(\s*)$!${1}Simple false\n${1}Config $logconf$2!m
+		or die "Couldn't find logging config";
 
 	if (exists $opts{dbdir}) {
 		$conf =~ s!^DataDir .+ #!DataDir $opts{dbdir} #!m

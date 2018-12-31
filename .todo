@@ -272,7 +272,7 @@
         <note priority="verylow" time="1546044826">
             Test silly feeds: weird MIME types
         </note>
-        <note priority="low" time="1546046846">
+        <note priority="low" time="1546046846" done="1546274859">
             Test complicated (custom) logging config; probably also useful to get the color coding out of the TAP logs
         </note>
         <note priority="low" time="1546046108">
