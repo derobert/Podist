@@ -1,6 +1,7 @@
 package Podist::Processor;
 use Moose;
 use Podist::Types;
+use File::Copy qw();
 use Log::Log4perl;
 use IPC::Run qw(run);
 use JSON::MaybeXS qw(decode_json);
@@ -132,6 +133,13 @@ sub BUILD {
 sub process {
 	my ($self, $infile) = @_;
 
+	# TODO: workaround for lack of plugins, avoid CPU-intensive work
+	#       during some tests that don't actually need it.
+	if ($ENV{PODIST_FAST_FAKE_PROCESSOR}) {
+		my $res = $self->_fast_fake_process($infile);
+		return $res if $res;
+	}
+
 	my $info = $self->_get_bs1770_info($infile)
 		or die "failed to get ITU BS.1770 info";
 	my $outfile = $self->_temp->($CODECS{$self->_encoder}{file_ext});
@@ -217,6 +225,28 @@ sub process {
 		{filter => \&Data::Dump::pp, value => $self->_last_process_info});
 
 	return [ $outfile ]; # someday, will return 0 or more files
+}
+
+# TODO: get rid of this hacked solution once we have a plugin-based
+#       approach where we could just configure a "copy the file" plugin.
+sub _fast_fake_process {
+	my ($self, $infile) = @_;
+
+	if ($self->_encoder ne 'lame-vbr') {
+		$self->_logger->warn('Fast fake process only supports lame-vbr.');
+		return;
+	}
+
+	if ($infile !~ /\.mp3$/) {
+		$self->_logger->warn("Fast fake process requires MP3 input");
+		return;
+	}
+
+	my $outfile = $self->_temp->($CODECS{$self->_encoder}{file_ext});
+	File::Copy::copy($infile, $outfile);
+	$self->_logger->trace("Fast fake processed $infile -> $outfile.");
+
+	return [$outfile];
 }
 
 sub _get_filter {

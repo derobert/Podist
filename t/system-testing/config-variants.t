@@ -228,10 +228,13 @@ subtest 'Four feed options on' => sub {
 	done_testing();
 };
 
-# unfortunately, the next bit of test require processing. This will take
-# a while!
-run3 [@{$setup->{podist}}, 'process'], undef, \$stdout, \$stderr;
-check_run("Processed audio", $stdout, $stderr);
+# The next tests require processing, thankfully we now have a quick way
+# to do that!
+{
+	local $ENV{PODIST_FAST_FAKE_PROCESSOR} = 1;
+	run3 [@{$setup->{podist}}, 'process'], undef, \$stdout, \$stderr;
+	check_run("Processed audio", $stdout, $stderr);
+}
 
 subtest 'Test archive speech, delete processed' => sub {
 	plan tests => 2;

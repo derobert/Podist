@@ -377,7 +377,7 @@
         <note priority="high" time="1518160516" done="1546044724">
             Probably can use git-worktree to check out old versions to test migration between each DB version.
         </note>
-        <note priority="veryhigh" time="1546193954">
+        <note priority="veryhigh" time="1546193954" done="1546270596">
             Add some way to force the processing into minimal mode, to save time in system tests. Processing has its own testing anyway.
         </note>
         <note priority="veryhigh" time="1546045707">
