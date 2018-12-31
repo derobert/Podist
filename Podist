@@ -1496,7 +1496,7 @@ sub process {
 					store        => 'processed',
 				);
 			}
-			DEBUG("Finished $info->{enclosure_no} in ${cputime}s, @{[ $duration/$cputime ]}x");
+			DEBUG("Finished $info->{enclosure_no} in ${cputime}s, @{[ $cputime ? $duration/$cputime : 'inf ' ]}x");
 		}
 	}
 }
