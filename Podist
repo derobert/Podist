@@ -1408,6 +1408,13 @@ sub speak {
 			or LOGDIE("lame failed: $! $?");
 		$STORAGE->discard_speech_temp($tmp_wav);
 		return $tmp_mp3;
+	} elsif ($format eq 'mp3-cbr') {
+		my $tmp_mp3 = $STORAGE->new_speech_temp('.mp3');
+		TRACE("Encoding mp3");
+		run3 [qw(lame --quiet --preset cbr 64), $tmp_wav, $tmp_mp3]
+			or LOGDIE("lame failed: $! $?");
+		$STORAGE->discard_speech_temp($tmp_wav);
+		return $tmp_mp3;
 	} elsif ($format eq 'ogg') {
 		my $tmp_ogg = $STORAGE->new_speech_temp('.ogg');
 		TRACE("Encoding ogg");
