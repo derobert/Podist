@@ -2,7 +2,7 @@ package Podist::Misc;
 use strict;
 
 use parent qw(Exporter);
-our @EXPORT_OK = qw(inherit_proc_profiles);
+our @EXPORT_OK = qw(inherit_proc_profiles normalize_time);
 
 use Hash::Merge qw();
 #use Log::Log4perl qw(:easy :no_extra_logdie_message);
@@ -62,6 +62,20 @@ sub inherit_proc_profiles {
 	}
 
 	return;
+}
+
+sub normalize_time {
+	my $time = shift;
+	my $log = Log::Log4perl->get_logger(__PACKAGE__);
+
+	$time =~ /^ (\d+) \s* w $/ixa  and return $1 * 604_800;
+	$time =~ /^ (\d+) \s* d $/ixa  and return $1 * 86_400;
+	$time =~ /^ (\d+) \s* h $/ixa  and return $1 * 3600;
+	$time =~ /^ (\d+) \s* m $/ixa  and return $1 * 60;
+	$time =~ /^ (\d+) \s* s? $/ixa and return $1 * 1;
+	
+	$log->logconfess(
+		"Unparsable duration: $time. Expected number with optional H, M, or S suffix.");
 }
 
 1;
