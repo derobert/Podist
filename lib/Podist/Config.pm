@@ -311,7 +311,7 @@ DataDir $confdir # e.g., \$HOME/.podist
     <profile default>
         Loudness       -23 LUFS
         LoudnessRange  unlimited
-        Encoder        lame-vbr   # lame-vbr, vorbis, opus
+        Encoder        lame-vbr   # lame-vbr, lame-cbr, vorbis, opus
         EncodeQuality  2          # meaning depends on Encoder
     </profile>
     <profile compress>
@@ -332,7 +332,7 @@ DataDir $confdir # e.g., \$HOME/.podist
 	Volume 12dbFS
 
 	# Which format to get the audio in enventually. Options are:
-	#   wav, mp3, ogg (listed largest -> smallest)
+	#   wav, mp3-cbr, mp3, ogg (listed largest -> smallest)
 	Format ogg
 
 	# What to say
