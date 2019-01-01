@@ -114,18 +114,36 @@ my %CODECS = (
 		qual_max => 9.999,
 		file_ext => '.mp3',
 	},
+	'lame-cbr' => {
+		# ffmpeg seems like it might manage to copy cover art for mp3
+		ff_args => [ qw(-c:a libmp3lame -c:v copy -compression_level 0 -id3v2_version 4 ) ],
+		qual_name => 'CBR bitrate',
+		qual_arg => '-b:a',
+		qual_list => [qw(32 40 48 56 64 80 96 112 128 160 192 224 256 320)],
+		file_ext => '.mp3',
+	},
 );
 
 sub BUILD {
 	my $self = shift;
+	local $_;
 
 	my $info = $CODECS{$self->_encoder}
 		or die "Unknown codec: @{[$self->_encoder]}";
+	my $quality = $self->_quality;
 
-	$self->_quality >= $info->{qual_min}
-		or die "Quality @{[$self->_quality]} below min ($info->{qual_min})";
-	$self->_quality <= $info->{qual_max}
-		or die "Quality @{[$self->_quality]} above max ($info->{qual_max})";
+	if ($info->{qual_list}) {
+		my $list = $info->{qual_list};
+		grep($_ == $quality, @$list)
+			or die("Quality $quality not in allowed list ("
+			       . join(', ', @$list)
+			       . ")");
+	} else {
+		$quality >= $info->{qual_min}
+			or die "Quality $quality below min ($info->{qual_min})";
+		$quality <= $info->{qual_max}
+			or die "Quality $quality above max ($info->{qual_max})";
+	}
 
 	return;
 }
@@ -232,7 +250,7 @@ sub process {
 sub _fast_fake_process {
 	my ($self, $infile) = @_;
 
-	if ($self->_encoder ne 'lame-vbr') {
+	if ($self->_encoder =~ /^lame-/) {
 		$self->_logger->warn('Fast fake process only supports lame-vbr.');
 		return;
 	}
