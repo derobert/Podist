@@ -1,19 +1,28 @@
 <?xml version="1.0"?>
 <todo version="0.1.20">
+    <note priority="verylow" time="1546320808">
+        List::MoreUtils has a binary search implementation... could it replace ours (that is used for randoms)? Check someday
+    </note>
     <note priority="verylow" time="1530643335">
         Maybe multiple don't-use statuses? Might be useful to know whether it was a duplicate, part of a dropped podcast, and episode you didn't care about, etc.
     </note>
     <note priority="verylow" time="1519759157">
         Per-feed priority (make episodes of FeedA more likely to go in the playlist than FeedB) in addition to current weighting (e.g., number unplayed)
     </note>
-    <note priority="verylow" time="1518732981">
+    <note priority="verylow" time="1518732981" done="1546330430">
         List more stuff with feeds, like limit
+        <comment>
+            New option --long/-l
+        </comment>
     </note>
     <note priority="verylow" time="1436920611">
         Parallel download (grab from multiple servers at once)
     </note>
-    <note priority="verylow" time="1433650768">
+    <note priority="verylow" time="1433650768" done="1546328641">
         Specify all feed options when adding a feed. Missing a lot that are db-only now.
+        <comment>
+            Added a way to edit them after adding the feed, close enough for now.
+        </comment>
     </note>
     <note priority="verylow" time="1433315290">
         "Play something" for when you're on the computer and want a podcast. Need to figure how that should interact with playlisted, but not yet played, podcasts.

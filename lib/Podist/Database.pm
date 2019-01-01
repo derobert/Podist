@@ -21,7 +21,7 @@ has _dbh => (
 	builder  => '_build_dbh',
 	handles  => [qw(
 			commit rollback do prepare selectall_arrayref selectrow_array
-			selectcol_arrayref last_insert_id prepare_cached
+			selectcol_arrayref last_insert_id prepare_cached quote_identifier
 			)
 	],
 );
@@ -274,6 +274,55 @@ sub update_speech_storage {
 		  WHERE speech_no = ?
 	});
 	$sth->execute($store, $s_no);
+
+	return;
+}
+
+sub update_feed {
+	my ($self, $feed_no, $updates) = @_;
+
+	$self->_update_table_generic(
+		table => 'feeds', 
+		pkey => { feed_no => $feed_no }, 
+		updates => $updates
+	);
+}
+
+sub update_random {
+	my ($self, $random_no, $updates) = @_;
+
+	$self->_update_table_generic(
+		table => 'randoms', 
+		pkey => { random_no => $random_no }, 
+		updates => $updates
+	);
+}
+
+sub _update_table_generic {
+	my ($self, %opts) = @_;
+	local $_;
+	# TODO: switch to an ORM like DBIC somday. Which would already
+	# provide this.
+	
+	my @cols = map($self->quote_identifier($_), keys %{$opts{updates}});
+	my @vals = values %{$opts{updates}};
+
+	my @keys = map($self->quote_identifier($_), keys %{$opts{pkey}});
+	push @vals, values %{$opts{pkey}};
+
+	my $table = $self->quote_identifier($opts{table});
+
+	my $query = <<QUERY;
+UPDATE $table
+  SET
+    ${ \join(",\n    ",    map("$_ = ?", @cols)) }
+  WHERE
+    ${ \join(" AND\n    ", map("$_ = ?", @keys)) }
+QUERY
+
+	TRACE("_update_table_generic generated query:\n$query");
+	my $rows = $self->do($query, {}, @vals);
+	1 == $rows or die "Expected to affect 1 row, instead got $rows";
 
 	return;
 }

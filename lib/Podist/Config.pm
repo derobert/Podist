@@ -8,6 +8,7 @@ use Config::General;
 use File::Slurper qw(write_text);
 use MooseX::Params::Validate;
 use Podist::Types;
+use Podist::Misc qw(normalize_time);
 
 # Probably if we were doing this from scratch, Podist wouldn't treat
 # config as just a giant hash. But it's hard to change, and also it'd
@@ -136,7 +137,7 @@ sub _normalize_config {
 	);
 	
 	my $p = $config->{playlist};
-	$p->{$_} = $self->_normalize_time($p->{$_})
+	$p->{$_} = normalize_time($p->{$_})
 		foreach (qw(minimumduration targetduration maximumduration));
 	$p->{$_} = $self->_normalize_fraction($p->{$_})
 		foreach (qw(randomchancem randomchanceb randomfeedratio));
@@ -145,16 +146,6 @@ sub _normalize_config {
 		= $self->_compile_regex($config->{article}{titleignorere});
 
 	return;
-}
-
-sub _normalize_time {
-	my ($self, $time) = @_;
-
-	$time =~ /^ (\d+) \s* h $/ixa  and return $1 * 3600;
-	$time =~ /^ (\d+) \s* m $/ixa  and return $1 * 60;
-	$time =~ /^ (\d+) \s* s? $/ixa and return $1 * 1;
-	confess
-		"Unparsable duration: $time. Expected number with optional H, M, or S suffix.";
 }
 
 sub _normalize_fraction {

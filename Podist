@@ -30,7 +30,7 @@ use File::Temp qw(tempfile);
 use Getopt::Long;
 use IPC::Run3;
 use List::MoreUtils qw(pairwise);
-use List::Util qw(sum);
+use List::Util qw(sum pairmap);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
@@ -52,7 +52,7 @@ use FindBin;
 use lib "$FindBin::RealBin/lib";
 use Podist::Config;
 use Podist::Database;
-use Podist::Misc qw(inherit_proc_profiles);
+use Podist::Misc qw(inherit_proc_profiles normalize_time);
 use Podist::Processor;
 use Podist::Storage;
 
@@ -134,31 +134,34 @@ sub go {
 sub register_commands {
 	*COMMAND = sub() {
 		{
-			add       => \&add_podcast,
-			new       => \&add_podcast,
-			subscribe => \&add_podcast,
+			add         => \&add_podcast,
+			new         => \&add_podcast,
+			subscribe   => \&add_podcast,
 
-			catch     => \&catch,
-			fetch     => \&fetch,
-			download  => \&download,
-			stopwatch => \&stopwatch,
-			hash      => \&hasherize,
-			hasherize => \&hasherize,
+			catch       => \&catch,
+			fetch       => \&fetch,
+			download    => \&download,
+			stopwatch   => \&stopwatch,
+			hash        => \&hasherize,
+			hasherize   => \&hasherize,
 			originalize => \&originalize,
 
-			playlist  => \&playlist,
-			archive   => \&archive,
-			
-			process   => \&process,
-			feed      => \&feed,
+			playlist    => \&playlist,
+			archive     => \&archive,
 
-			status    => \&status,
-			history   => \&history,
+			process     => \&process,
+			feed        => \&feed,
 
-			list      => \&list,
-		    cleanup   => \&cleanup,
+			status      => \&status,
+			history     => \&history,
 
-		    fsck      => \&fsck,
+			list        => \&list,
+			cleanup     => \&cleanup,
+
+			editfeed    => \&edit_podcast,
+			editrandom  => \&edit_random,
+
+			fsck        => \&fsck,
 		};
 	};
 	TRACE("Commands registered");
@@ -179,6 +182,88 @@ INSERT INTO feeds(feed_name, feed_url) VALUES(?, ?)
 QUERY
 	my $f_no = $DB->last_insert_id('', '', 'feeds', 'feed_no');
 	INFO("Added #$f_no: $name");
+
+	return;
+}
+
+sub edit_podcast {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+	my $p2u = sub {
+		pod2usage({
+			-verbose  => 99,
+			-exitval  => 2,
+			-sections => [qw(SYNOPSIS COMMANDS/editfeed)],
+			(defined $_[0] ? (-message => $_[0]) : ()),
+		});
+	};
+
+	my %opts;
+	$go->getoptions(
+		\%opts, qw/
+			feed_no|feed-no|f=i          url=s
+			name=s enable                disable
+			ordered!                     all_audio|all-audio!
+			is_music|is-music!           limit_amount|limit-amount=i
+			limit_period|limit-period=s  proc_profile|proc-profile=s
+			/
+	) or $p2u->();
+
+	# delete returns the last removed value
+	my $feed_no = delete $opts{feed_no}
+		or $p2u->("Need to specify which feed to edit.");
+
+	exists $opts{enable} and exists $opts{disable}
+		and $p2u->("Can't both enable and disable a feed.");
+
+	$opts{enabled} = 1 if delete $opts{enable};
+	$opts{enabled} = 0 if delete $opts{disable};
+
+	$opts{limit_period} = normalize_time($opts{limit_period})
+		if exists $opts{limit_period};
+
+	keys %opts
+		or $p2u->("Need to specify some changes");
+
+	%opts = pairmap { "feed_$a", $b } %opts;
+
+	TRACE("Editing feed #$feed_no, changes: @{[ pp \%opts ]}");
+	$DB->update_feed($feed_no, \%opts);
+
+	return;
+}
+
+sub edit_random {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+	my $p2u = sub {
+		pod2usage({
+			-verbose  => 99,
+			-exitval  => 2,
+			-sections => [qw(SYNOPSIS COMMANDS/editrandom)],
+			(defined $_[0] ? (-message => $_[0]) : ()),
+		});
+	};
+
+	my %opts;
+	$go->getoptions(
+		\%opts, qw/random_no|random-no|r=i weight=i name=s/
+	) or $p2u->();
+
+	# delete returns the last removed value
+	my $random_no = delete $opts{random_no}
+		or $p2u->("Need to specify which random to edit.");
+
+	exists $opts{weight} and $opts{weight} < 0
+		and $p2u->("Random weight must be non-negative.");
+
+	keys %opts
+		or $p2u->("Need to specify some changes.");
+
+	%opts = pairmap { "random_$a", $b } %opts;
+
+	TRACE("Editing random #$random_no, changes: @{[ pp \%opts ]}");
+	$DB->update_random($random_no, \%opts);
 
 	return;
 }
@@ -717,21 +802,40 @@ sub list {
 		config => [qw( gnu_compat require_order )]);
 
 	my %opts;
-	$go->getoptions(\%opts, qw(feeds|f randoms|r) ) or pod2usage(2);
+	$go->getoptions(\%opts, qw(feeds|f randoms|r long|l) ) or pod2usage(2);
 	keys %opts or pod2usage("Need to specify something to list.");
-	
+
 	if ($opts{feeds}) {
+		my @header = ('Enabled', 'Feed Name', 'Feed #', 'Proc.');
+		my @cols = (
+			q{CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END},
+			q{feed_name},
+			q{feed_no},
+			q{feed_proc_profile},
+		);
+		if ($opts{long}) {
+			# --long is probably doable on a 132-wide term, but right
+			# now Text::ASCITable can't properly wrap URLs. So use a
+			# very wide xterm or less -S.
+
+			push @header, qw(URL Ordered All-Audio Music Limit Period);
+			push @cols, (
+				q{feed_url},
+				q{CASE WHEN feed_ordered THEN 'Yes' ELSE 'No' END},
+				q{CASE WHEN feed_all_audio THEN 'Yes' ELSE 'No' END},
+				q{CASE WHEN feed_is_music THEN 'Yes' ELSE 'No' END},
+				q{feed_limit_amount},
+				q{feed_limit_period},
+			);
+		}
 		my $tab = Text::ASCIITable->new({
-				outputWidth => 72,
+				outputWidth => $TERM_COLS,
 				headingText => 'Feeds'
 		});
-		$tab->setCols('Enabled', 'Feed Name', 'Feed #', 'Proc.');
+		$tab->setCols(@header);
 		$tab->addRow(@$_) foreach @{$DB->selectall_arrayref(<<QUERY)};
 SELECT
-	CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END, 
-    feed_name,
-	feed_no,
-	feed_proc_profile
+    ${ \join(qq{,\n    }, @cols) }
   FROM feeds
   ORDER BY feed_enabled DESC, feed_name ASC
 QUERY
@@ -777,7 +881,7 @@ sub format_perday {
 
 sub fsck {
 	my $problems = 0;
-	
+
 	TRACE('Looking for orphaned enclosures.');
 	my $sth = $DB->prepare(<<QUERY);
 SELECT e.enclosure_no, e.enclosure_url
@@ -890,11 +994,11 @@ SELECT DISTINCT
       e1.enclosure_hash = e2.enclosure_hash
     )
   WHERE
-    e1.enclosure_no < e2.enclosure_no 
+    e1.enclosure_no < e2.enclosure_no
     AND e1.enclosure_use = 1 AND e2.enclosure_use = 1
     AND e2.playlist_no IS NULL
 QUERY
-	
+
 	my $mark = $DB->prepare(<<QUERY);
 UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?
 QUERY
@@ -908,7 +1012,7 @@ sub stopwatch {
 	# TODO: Someday make storage provide an iterator that'd combine this
 	#       select w/ getting the path. (See also hasherize)
 	my $sth = $DB->prepare(<<QUERY);
-SELECT enclosure_no 
+SELECT enclosure_no
   FROM enclosures
   WHERE
     enclosure_file IS NOT NULL
@@ -1261,7 +1365,7 @@ sub announce {
 		playlist_no => $p_no,
 		playlist_so => $p_so,
 	);
-	
+
 	return $s_path;
 }
 
@@ -1432,7 +1536,7 @@ sub archive {
 		# we commit after each archival, because a rollback wouldn't move
 		# the files back.
 		$DB->commit;
-		
+
 		# get rid of empty dirs; these will die if not empty
 		# (indicating a bug of some sort)
 		$STORAGE->cleanup_original($p_no);
@@ -1791,7 +1895,7 @@ Displays the manual page.
 
 =back
 
-=head1 COMMANDS IN DETAIL
+=head1 COMMANDS
 
 =head2 B<subscribe> | B<new> | B<add> I<name> I<URL>
 
@@ -1941,7 +2045,130 @@ List the random items found on the filesystem, along with their weight
 (from the database). Note that the also adds any new random items to the
 database.
 
+=item B<--long> | B<-l>
+
+List more details. Currently, for feeds, makes it list all the columns
+stored in the database (everything you can edit with C<Podist editfeed>.
+
 =back
+
+=head2 editfeed
+
+    Podist editfeed --feed-no <<feed-number>> <<options>>
+
+Edits the various attributes for a feed stored in the database. Specify
+at least one thing to change using the options below; anything you don't
+specify remains unchanged.
+
+=over
+
+=item B<--feed-no> | B<-f> I<number>
+
+The feed number (the one displayed by C<Podist list -f>). Required.
+
+=item B<--url> I<URL>
+
+Change the RSS/Atom feed URL. Useful if a podcast changes its feed URL.
+
+=item B<--name> I<NAME>
+
+Change the feed name. This is used for display purposes in various
+places, such as Podist output and also, e.g., in generated feeds from
+C<Podist feed>.
+
+=item B<--disable> | B<--enable>
+
+Disable or enable the feed. A disabled feed is not fetched, but already
+fetched episodes remain (and will still be used in future playlists).
+Obviously an error to specify both of these options (but neither is
+fine, which, like all the rest of the options, leaves it in its current
+state).
+
+Note that you can force Podist to fetch a disabled feed by using
+C<Podist fetch> or C<Podist catch>'s C<-f> option.
+
+Default: enabled.
+
+=item B<--ordered> | B<--no-ordered>
+
+Ordered feeds must be inserted into a playlist with their episodes in
+order. "No-ordered" feeds can have their episodes inserted in any order
+(which can help satisfy playlist constraints if the episodes are
+different lenghts). The default for newly created feeds is ordered.
+
+=item B<--all-audio> | B<--no-all-audio>
+
+If a feed is marked all audio then a warning will be raised (in the
+Podist log, typically written to the terminal) if an item doesn't have
+an enclosure. Otherwise, no warning will be raised. Default: all audio.
+
+=item B<--is-music> | B<--no-is-music>
+
+If a feed is marked as music, then it will be used for intermissions in
+place of C<RandomMedia> some of the time (controlled by the
+C<RandomFeedRatio> configuration option). It will not be played as a
+normal episode. Default: is not music.
+
+=item B<--limit-amount> I<LIMIT>
+
+=item B<--limit-period> I<DURATION>
+
+These two together specify the maximum number of new items that will be
+accepted from a feed. The goal is to bail out if, e.g., a podcast messes
+up their feed causing many/all episodes to appear new. The way it works
+is Podist checks how many new articles Podist has fetched in the last
+I<DURATION>. (Only when Podist fetched them matters; the article dates
+specified in the feed are ignored.) It then subtracts that from
+I<LIMIT>. That's the maximum number of new articles Podist will accept;
+if there are more than that, Podist will not add I<any of them>. If that
+maximum is zero (or less), then the fetch is skipped entirely.
+
+You can override I<LIMIT> on a per-fetch basis with C<Podist
+fetch>/C<Podist catch>'s C<--fetch-limit> option.
+
+I<DURATION> is specified in seconds, or alternatively you can specify a
+unit with a suffix: B<s>econds, B<m>inutes, B<h>ours, B<d>ays, B<w>eeks.
+These are aliases for a number of seconds; things like some weeks being
+an hour shorter or longer due to daylight saving time changes are
+ignored. So C<1w> means 604,800 seconds.
+
+Default: 3 episodes per week.
+
+=back
+
+=head2 editrandom
+
+    Podist editrandom --random-no <<random-number>> <<options>>
+
+Edits the various attributes for a random media stored in the database.
+Specify at least one thing to change using the options below; anything
+you don't specify remains unchanged.
+
+=over
+
+=item B<--random-no> | B<-r> I<number>
+
+The random number (the one displayed by C<Podist list -r>). Required.
+
+=item B<--weight> I<WEIGHT>
+
+Change the weight of the random item (how frequently its chosen). Higher
+numbers are chosen more frequently; double the number and you double the
+chance. A weight of 0 means the random is disabled (will never be
+picked). Default: 1000.
+
+=item B<--name> I<NAME>
+
+Change the name of the random item. This isn't currently used for
+anything except C<Podist list -r>. Default: Based on the file name.
+
+=back
+
+Note there is no way to change the file name. That's how Podist tracks
+the random item; changing it would make it a different random item (and
+Podist would just insert a new row if the file still exists). If the
+file no longer exists, Podist will just ignore the random item entry in
+the database.
 
 =head2 B<fsck>
 

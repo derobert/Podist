@@ -47,7 +47,7 @@ sub setup_config {
 	$conf =~ s!^NotYetConfigured true$!NotYetConfigured false!m
 		or die "Couldn't find NotYetConfigured";
 	my $logconf = File::Spec->rel2abs('t-conf/log4perl-test.conf');
-	$conf =~ s!^(\s*)Simple true(\s*)$!${1}Simple false\n${1}Config $logconf$2!m
+	$conf =~ s!^(\s*)Simple true\s*$!${1}Simple false\n${1}Config $logconf$2!m
 		or die "Couldn't find logging config";
 
 	if (exists $opts{dbdir}) {

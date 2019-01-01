@@ -2,7 +2,7 @@ use 5.024;
 use strict;
 use warnings qw(all);
 
-use Test::More tests => 33;
+use Test::More tests => 25;
 use Clone qw(clone);
 use File::Slurper q(read_text);
 use File::Temp qw();
@@ -66,16 +66,6 @@ dies_ok {
 		)
 } 'notices wrong regexp flags';
 
-
-is($Cfg->_normalize_time('30'),   30, 'Understands unlabeled seconds');
-is($Cfg->_normalize_time('30s'),  30, 'Understands seconds');
-is($Cfg->_normalize_time('30 s'), 30, 'Understands seconds with space');
-is($Cfg->_normalize_time('30 S'), 30, 'Understands SECONDS with space');
-is($Cfg->_normalize_time('2 m'), 120,  'Understands minutes');
-is($Cfg->_normalize_time('2 h'), 7200, 'Understands hours');
-
-dies_ok { $Cfg->_normalize_time('purple') } 'rejects invalid format 1';
-dies_ok { $Cfg->_normalize_time('2 d') } 'rejects invalid format 2';
 
 is($Cfg->_normalize_fraction('1.234'), 1.234, 'Understands decimals');
 is($Cfg->_normalize_fraction('.234'),  0.234, 'Omitted leading 0');

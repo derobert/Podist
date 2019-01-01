@@ -1,12 +1,8 @@
 use 5.024;
 
 use Data::Dump qw(pp);
-use File::Copy qw(copy);
 use File::Find qw(find);
-use File::pushd qw(pushd);
-use File::Slurper qw(read_text write_text read_lines);
-use File::Spec;
-use File::Temp qw();
+use File::Slurper qw(read_text read_lines);
 use IPC::Run3;
 use Test::Deep;
 use Test::Exception;
@@ -17,7 +13,6 @@ use Podist::Test::SystemTesting qw(
 	add_test_feeds add_test_randoms connect_to_podist_db
 );
 use Podist::Test::Notes qw(long_note);
-use DBI;
 
 # This test is somewhat dangerous (e.g., might ignore the non-default
 # directories we say to use, and instead do weird things to your actual
@@ -28,9 +23,6 @@ plan_dangerously_or_exit tests => 33;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
-
-my $FEED_DIR = 't-gen/feeds/v1';
-
 
 
 # 1
