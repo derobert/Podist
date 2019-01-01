@@ -250,8 +250,9 @@ sub process {
 sub _fast_fake_process {
 	my ($self, $infile) = @_;
 
-	if ($self->_encoder =~ /^lame-/) {
-		$self->_logger->warn('Fast fake process only supports lame-vbr.');
+	if ($self->_encoder !~ /^lame-/) {
+		$self->_logger->warn(
+			'Fast fake process only supports lame, not ' . $self->_encoder);
 		return;
 	}
 
