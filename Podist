@@ -134,33 +134,34 @@ sub go {
 sub register_commands {
 	*COMMAND = sub() {
 		{
-			add       => \&add_podcast,
-			new       => \&add_podcast,
-			subscribe => \&add_podcast,
+			add         => \&add_podcast,
+			new         => \&add_podcast,
+			subscribe   => \&add_podcast,
 
-			catch     => \&catch,
-			fetch     => \&fetch,
-			download  => \&download,
-			stopwatch => \&stopwatch,
-			hash      => \&hasherize,
-			hasherize => \&hasherize,
+			catch       => \&catch,
+			fetch       => \&fetch,
+			download    => \&download,
+			stopwatch   => \&stopwatch,
+			hash        => \&hasherize,
+			hasherize   => \&hasherize,
 			originalize => \&originalize,
 
-			playlist  => \&playlist,
-			archive   => \&archive,
+			playlist    => \&playlist,
+			archive     => \&archive,
 
-			process   => \&process,
-			feed      => \&feed,
+			process     => \&process,
+			feed        => \&feed,
 
-			status    => \&status,
-			history   => \&history,
+			status      => \&status,
+			history     => \&history,
 
-			list      => \&list,
-		    cleanup   => \&cleanup,
+			list        => \&list,
+			cleanup     => \&cleanup,
 
-		    editfeed  => \&edit_podcast,
+			editfeed    => \&edit_podcast,
+			editrandom  => \&edit_random,
 
-		    fsck      => \&fsck,
+			fsck        => \&fsck,
 		};
 	};
 	TRACE("Commands registered");
@@ -228,6 +229,41 @@ sub edit_podcast {
 
 	TRACE("Editing feed #$feed_no, changes: @{[ pp \%opts ]}");
 	$DB->update_feed($feed_no, \%opts);
+
+	return;
+}
+
+sub edit_random {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+	my $p2u = sub {
+		pod2usage({
+			-verbose  => 99,
+			-exitval  => 2,
+			-sections => [qw(SYNOPSIS COMMANDS/editrandom)],
+			(defined $_[0] ? (-message => $_[0]) : ()),
+		});
+	};
+
+	my %opts;
+	$go->getoptions(
+		\%opts, qw/random_no|random-no|r=i weight=i name=s/
+	) or $p2u->();
+
+	# delete returns the last removed value
+	my $random_no = delete $opts{random_no}
+		or $p2u->("Need to specify which random to edit.");
+
+	exists $opts{weight} and $opts{weight} < 0
+		and $p2u->("Random weight must be non-negative.");
+
+	keys %opts
+		or $p2u->("Need to specify some changes.");
+
+	%opts = pairmap { "random_$a", $b } %opts;
+
+	TRACE("Editing random #$random_no, changes: @{[ pp \%opts ]}");
+	$DB->update_random($random_no, \%opts);
 
 	return;
 }
@@ -2099,6 +2135,40 @@ ignored. So C<1w> means 604,800 seconds.
 Default: 3 episodes per week.
 
 =back
+
+=head2 editrandom
+
+    Podist editrandom --random-no <<random-number>> <<options>>
+
+Edits the various attributes for a random media stored in the database.
+Specify at least one thing to change using the options below; anything
+you don't specify remains unchanged.
+
+=over
+
+=item B<--random-no> | B<-r> I<number>
+
+The random number (the one displayed by C<Podist list -r>). Required.
+
+=item B<--weight> I<WEIGHT>
+
+Change the weight of the random item (how frequently its chosen). Higher
+numbers are chosen more frequently; double the number and you double the
+chance. A weight of 0 means the random is disabled (will never be
+picked). Default: 1000.
+
+=item B<--name> I<NAME>
+
+Change the name of the random item. This isn't currently used for
+anything except C<Podist list -r>. Default: Based on the file name.
+
+=back
+
+Note there is no way to change the file name. That's how Podist tracks
+the random item; changing it would make it a different random item (and
+Podist would just insert a new row if the file still exists). If the
+file no longer exists, Podist will just ignore the random item entry in
+the database.
 
 =head2 B<fsck>
 

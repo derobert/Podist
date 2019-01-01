@@ -288,6 +288,16 @@ sub update_feed {
 	);
 }
 
+sub update_random {
+	my ($self, $random_no, $updates) = @_;
+
+	$self->_update_table_generic(
+		table => 'randoms', 
+		pkey => { random_no => $random_no }, 
+		updates => $updates
+	);
+}
+
 sub _update_table_generic {
 	my ($self, %opts) = @_;
 	local $_;

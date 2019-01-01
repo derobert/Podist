@@ -10,30 +10,30 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 12;
+plan_dangerously_or_exit tests => 16;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
 
-# 1
 my $podist_setup = basic_podist_setup();
 
 my ($stdout, $stderr, $res);
-my $store_dir = $podist_setup->{store_dir};
 my $podist = $podist_setup->{podist};
 
-# 2
 my $dbh = connect_to_podist_db($podist_setup->{db_file});
 
-# 3
 add_test_feeds(
 	podist       => $podist,
 	n_base_feeds => 2,
 	catch        => 0,
 );
 
+add_test_randoms(
+	store_dir => $podist_setup->{store_dir}
+);
+
 my $old = $dbh->selectall_hashref(q{SELECT * FROM feeds}, 'feed_no');
-long_note('old:', pp $old);
+long_note('old feeds:', pp $old);
 
 run3 [@$podist, qw(editfeed -f 1 --disable --name NotGood --no-ordered --no-all-audio --is-music --limit-amount 10 --limit-period=2w --proc-profile NewProfile)], undef, \$stdout, \$stderr;
 check_run("editfeed runs: change feed 1", $stdout, $stderr);
@@ -91,3 +91,25 @@ check_run("editfeed refuses weird param", $stdout, $stderr, 2<<8);
 
 run3 [@$podist, qw(editfeed -f 1)], undef, \$stdout, \$stderr;
 check_run("editfeed notices no changes", $stdout, $stderr, 2<<8);
+
+run3 [@$podist, qw(list -r)], undef, \$stdout, \$stderr;
+check_run("listed randoms to add to db", $stdout, $stderr);
+
+$old = $dbh->selectall_hashref(q{SELECT * FROM randoms}, 'random_no');
+long_note('old randoms:', pp $old);
+
+run3 [@$podist, qw(editrandom -r 1 --weight 1234 --name Untitled)], undef, \$stdout, \$stderr;
+check_run("editrandom runs: change random 1", $stdout, $stderr);
+
+my $row = $dbh->selectrow_hashref(
+	q{SELECT * FROM randoms WHERE random_no = 1});
+is_deeply(
+	$row,
+	{
+		random_no     => 1,
+		random_file   => $old->{1}{random_file},
+		random_weight => 1234,
+		random_name   => 'Untitled',
+	},
+	'Row is as expected after edit'
+);
