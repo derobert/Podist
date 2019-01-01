@@ -766,21 +766,40 @@ sub list {
 		config => [qw( gnu_compat require_order )]);
 
 	my %opts;
-	$go->getoptions(\%opts, qw(feeds|f randoms|r) ) or pod2usage(2);
+	$go->getoptions(\%opts, qw(feeds|f randoms|r long|l) ) or pod2usage(2);
 	keys %opts or pod2usage("Need to specify something to list.");
 
 	if ($opts{feeds}) {
+		my @header = ('Enabled', 'Feed Name', 'Feed #', 'Proc.');
+		my @cols = (
+			q{CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END},
+			q{feed_name},
+			q{feed_no},
+			q{feed_proc_profile},
+		);
+		if ($opts{long}) {
+			# --long is probably doable on a 132-wide term, but right
+			# now Text::ASCITable can't properly wrap URLs. So use a
+			# very wide xterm or less -S.
+
+			push @header, qw(URL Ordered All-Audio Music Limit Period);
+			push @cols, (
+				q{feed_url},
+				q{CASE WHEN feed_ordered THEN 'Yes' ELSE 'No' END},
+				q{CASE WHEN feed_all_audio THEN 'Yes' ELSE 'No' END},
+				q{CASE WHEN feed_is_music THEN 'Yes' ELSE 'No' END},
+				q{feed_limit_amount},
+				q{feed_limit_period},
+			);
+		}
 		my $tab = Text::ASCIITable->new({
-				outputWidth => 72,
+				outputWidth => $TERM_COLS,
 				headingText => 'Feeds'
 		});
-		$tab->setCols('Enabled', 'Feed Name', 'Feed #', 'Proc.');
+		$tab->setCols(@header);
 		$tab->addRow(@$_) foreach @{$DB->selectall_arrayref(<<QUERY)};
 SELECT
-	CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END,
-    feed_name,
-	feed_no,
-	feed_proc_profile
+    ${ \join(qq{,\n    }, @cols) }
   FROM feeds
   ORDER BY feed_enabled DESC, feed_name ASC
 QUERY
@@ -1989,6 +2008,11 @@ List the feeds in the database, both enabled and disabled.
 List the random items found on the filesystem, along with their weight
 (from the database). Note that the also adds any new random items to the
 database.
+
+=item B<--long> | B<-l>
+
+List more details. Currently, for feeds, makes it list all the columns
+stored in the database (everything you can edit with C<Podist editfeed>.
 
 =back
 

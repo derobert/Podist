@@ -9,8 +9,11 @@
     <note priority="verylow" time="1519759157">
         Per-feed priority (make episodes of FeedA more likely to go in the playlist than FeedB) in addition to current weighting (e.g., number unplayed)
     </note>
-    <note priority="verylow" time="1518732981">
+    <note priority="verylow" time="1518732981" done="1546330430">
         List more stuff with feeds, like limit
+        <comment>
+            New option --long/-l
+        </comment>
     </note>
     <note priority="verylow" time="1436920611">
         Parallel download (grab from multiple servers at once)
