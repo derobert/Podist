@@ -1423,7 +1423,7 @@ sub speak {
 		$STORAGE->discard_speech_temp($tmp_wav);
 		return $tmp_ogg;
 	} else {
-		LOGDIE("Uknown format $_")
+		LOGDIE("Uknown format $format")
 	}
 
 	LOGDIE("Unreachable code reached");

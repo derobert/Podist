@@ -16,7 +16,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 13;
+plan_dangerously_or_exit tests => 17;
 my ($stdout, $stderr, $res);
 
 # Make Podist actually run with coverage...
@@ -294,3 +294,43 @@ subtest 'Test throw away speech & processed' => sub {
 		check_run("Archived playlist 3", $stdout, $stderr);
 	}
 };
+
+
+my $playlist = 3; # three used above
+foreach my $format (qw(mp3 mp3-cbr wav ogg)) {
+	subtest 'Speech format mp3-cbr' => sub {
+		plan tests => 4;
+		local $config->{playlist}{announcebegin} = 1;
+		local $config->{playlist}{announceend} = 0;
+		local $config->{playlist}{announceleadout} = 0;
+		local $config->{playlist}{leadoutlength} = 0;
+		local $config->{playlist}{randomchanceb} = 0;
+		local $config->{playlist}{randomchancem} = 0;
+		local $config->{speech}{format} = $format;
+
+		lives_ok {
+			$Cfg->write_config(
+				conf_file => $setup->{conf_file},
+				config    => $config
+				)
+		} 'wrote new config';
+
+		run3 [@{$setup->{podist}}, 'playlist'], undef, \$stdout, \$stderr;
+		check_run("Generated playlist", $stdout, $stderr);
+		++$playlist;
+
+		($res) = $dbh->selectrow_array(
+			q{SELECT COUNT(*) FROM speeches WHERE playlist_no = ?}, {}, $playlist
+		);
+		is($res, 1, "One speech on playlist $playlist");
+
+		($res) = $dbh->selectrow_array(
+			q{SELECT speech_file FROM speeches WHERE playlist_no = ? LIMIT 1},
+			{}, $playlist
+		);
+		note("File name: $res");
+		my $ext = ($format eq 'mp3-cbr' ? 'mp3' : $format);
+		like($res, qr/\.${ext}$/, "Is a .$ext file");
+	};
+}
+
