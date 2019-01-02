@@ -10,7 +10,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 24;
+plan_dangerously_or_exit tests => 28;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -81,6 +81,25 @@ run3 [@$podist, qw(fsck)], undef, \$stdout, \$stderr;
 check_run("fsck runs after wiping enclosure_store", $stdout, $stderr);
 unlike($stderr, qr/^ \[ \s+ \d+ [ ] e/max, "no errors fixing enclosure_store");
 is($dbh->selectrow_array(q{SELECT count(*) FROM enclosures WHERE enclosure_store IS NULL}), 0, 'fixed all enclosure_store');
+
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NOT NULL AND enclosure_use = 1 LIMIT 1});
+long_note("Going to don't-use this already-playlisted one:", pp $res);
+$dbh->do(q{UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?},
+	{}, $res->{enclosure_no});
+run3 [@$podist, qw(fsck)], undef, \$stdout, \$stderr;
+check_run("fsck runs after don't-use a playlisted", $stdout, $stderr);
+like($stderr, qr/^ \[ \s+ \d+ [ ] E/max, "Found errors during fsck");
+like(
+	$stderr,
+	qr/Enclosure number \d+ is set use=0 but is on playlist \d+\.$/am,
+	"Found expected error"
+);
+like( $stderr, qr/Number of problems remaining after fsck: 1\.$/m,
+	"Found expected problem count"
+);
+$dbh->do(q{UPDATE enclosures SET enclosure_use = 1 WHERE enclosure_no = ?},
+	{}, $res->{enclosure_no});
+note("Put enclosure_no $res->{enclosure_no} back right.");
 
 # now let's do some permanent damage... delete an enclosure file
 $res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});

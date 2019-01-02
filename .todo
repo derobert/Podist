@@ -116,8 +116,11 @@
         <note priority="medium" time="1517773306">
             enclosure_store that makes no sense (e.g., pending + playlisted)
         </note>
-        <note priority="medium" time="1517772649">
+        <note priority="medium" time="1517772649" done="1546446965">
             Check for playlisted + enclosure_use=0
+            <comment>
+                Fixing might be non-trivial (since might require moving the file back &amp; updating enclosure_store) but at least this will find it.
+            </comment>
         </note>
     </note>
     <note priority="medium" time="1445791807">
