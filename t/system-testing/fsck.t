@@ -10,7 +10,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 20;
+plan_dangerously_or_exit tests => 24;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -31,6 +31,27 @@ add_test_feeds(
 	n_base_feeds => 2,
 	catch        => 1,
 );
+
+for (1..2) {
+	run3 [@$podist, qw(playlist)], undef, \$stdout, \$stderr;
+	check_run("playlist runs #$_", $stdout, $stderr);
+}
+
+run3 [@$podist, qw(archive 1)], undef, \$stdout, \$stderr;
+check_run("archived playlist 1", $stdout, $stderr);
+
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});
+long_note("Going to don't-use this one and then Podist cleanup:", pp $res);
+$dbh->do(q{UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?},
+	{}, $res->{enclosure_no});
+
+run3 [@$podist, qw(cleanup)], undef, \$stdout, \$stderr;
+check_run("Podist cleanup OK", $stdout, $stderr);
+
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});
+long_note("Going to don't-use this one, but not clean it up:", pp $res);
+$dbh->do(q{UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?},
+	{}, $res->{enclosure_no});
 
 run3 [@$podist, qw(fsck)], undef, \$stdout, \$stderr;
 check_run("fsck runs before mangling db", $stdout, $stderr);
@@ -62,7 +83,7 @@ unlike($stderr, qr/^ \[ \s+ \d+ [ ] e/max, "no errors fixing enclosure_store");
 is($dbh->selectrow_array(q{SELECT count(*) FROM enclosures WHERE enclosure_store IS NULL}), 0, 'fixed all enclosure_store');
 
 # now let's do some permanent damage... delete an enclosure file
-$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE enclosure_no=1});
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});
 long_note("Going to delete this one from the filesystem:", pp $res);
 ok(unlink("$podist_setup->{store_dir}/media-pending/$res->{enclosure_file}"),
    "Deleted $res->{enclosure_file}");

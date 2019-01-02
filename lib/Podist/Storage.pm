@@ -451,7 +451,10 @@ sub _fsck_missing_store {
 		if (!defined $p_no && $e_use) {
 			$store = 'pending';
 		} elsif (!defined $p_no && !$e_use) {
-			$store = 'unusable';
+			foreach my $possible (qw(pending unusable)) {
+				$store = $possible;
+				last if -e $self->_compute_media_path($store, $p_no, $e_file)
+			}
 		} elsif (defined $p_no && !defined($p_arch)) {
 			$store = 'original';
 		} elsif (defined $p_no && defined($p_arch)) {
