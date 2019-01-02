@@ -284,8 +284,11 @@
         <note priority="low" time="1546046846" done="1546274859">
             Test complicated (custom) logging config; probably also useful to get the color coding out of the TAP logs
         </note>
-        <note priority="low" time="1546046108">
+        <note priority="low" time="1546046108" done="1546441859">
             Test invalid speech config (unknown engine, bad voice syntax, unknown audio format, etc.)
+            <comment>
+                I think we're testing all that's really worth testing.
+            </comment>
         </note>
         <note priority="low" time="1546046030">
             Test with more than one random item
@@ -293,10 +296,10 @@
         <note priority="low" time="1546045868">
             Test config variants: various choice methods
         </note>
-        <note priority="low" time="1546045810">
+        <note priority="low" time="1546045810" done="1546441929">
             Test config variants: speech to MP3
         </note>
-        <note priority="low" time="1546045692">
+        <note priority="low" time="1546045692" done="1546444723">
             Test fsck with problems
         </note>
         <note priority="low" time="1546045603">
