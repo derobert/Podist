@@ -142,6 +142,8 @@ sub register_commands {
 			new         => \&add_podcast,
 			subscribe   => \&add_podcast,
 
+			drop        => \&drop_podcast,
+
 			catch       => \&catch,
 			fetch       => \&fetch,
 			download    => \&download,
@@ -186,6 +188,30 @@ INSERT INTO feeds(feed_name, feed_url) VALUES(?, ?)
 QUERY
 	my $f_no = $DB->last_insert_id('', '', 'feeds', 'feed_no');
 	INFO("Added #$f_no: $name");
+
+	return;
+}
+
+sub drop_podcast {
+	my $go = Getopt::Long::Parser->new(
+		config => [qw( gnu_compat require_order )]);
+	my $p2u = sub {
+		pod2usage({
+			-verbose  => 99,
+			-exitval  => 2,
+			-sections => [qw(SYNOPSIS COMMANDS/drop)],
+			(defined $_[0] ? (-message => $_[0]) : ()),
+		});
+	};
+
+	my $feed_no;
+	$go->getoptions(
+		'feed_no|feed-no|f=i' => \$feed_no,
+	) or $p2u->();
+	defined $feed_no or $p2u->();
+
+	TRACE("Dropping feed feed_no $feed_no");
+	$DB->drop_podcast($feed_no);
 
 	return;
 }
@@ -1933,6 +1959,27 @@ versions of RSS).
 
 Run the podcatcher. The same as fetch, download, and stopwatch (in that
 order) below.
+
+=head2 drop
+
+Drop a podcast, including marking don't-use all the unplaylisted
+episodes. If you want to just stop adding new episodes instead, see
+L<editfeed>'s C<--disable> option instead. (Note: if a episode has been
+linked from multiple podcasts, it will still be marked don't use.
+Presumably you don't care if a different podcast included an episode of
+a podcast you don't want to listen to. This is a rare occurrence anyway.)
+
+Running L<cleanup> after this will move these episodes to the unusable
+media directory (which you can move offline or even delete).
+
+=over
+
+=item B<--feed> | B<-f> I<feed_number>
+
+The feed number to drop, which you can get from (among other places)
+C<Podist list -f>.
+
+=back
 
 =head2 B<fetch> [ --feeds I<feed_no> ... ] [ --limit I<N> ]
 

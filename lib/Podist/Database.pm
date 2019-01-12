@@ -278,6 +278,38 @@ sub update_speech_storage {
 	return;
 }
 
+sub drop_podcast {
+	my ($self, $feed_no) = @_;
+
+	my $sth_victims = $self->prepare(<<QUERY);
+SELECT e.enclosure_no, e.enclosure_time
+  FROM articles a
+  JOIN articles_enclosures ae ON (a.article_no = ae.article_no)
+  JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
+  WHERE a.feed_no = ? AND e.playlist_no IS NULL AND e.enclosure_use = 1
+  ORDER BY e.enclosure_no
+QUERY
+	my $sth_dontuse = $self->prepare(<<QUERY);
+UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?
+QUERY
+
+	my ($N, $t_time) = (0, 0);
+	$sth_victims->execute($feed_no);
+	while (my ($e_no, $e_time) = $sth_victims->fetchrow_array) {
+		++$N; $t_time += $e_time;
+		$sth_dontuse->execute($e_no);
+		INFO("Dropping feed #$feed_no, will not use enclosure #$e_no.");
+	}
+	WARN("Dropped feed #$feed_no, not using $N enclosures (${ \int(0.5+($t_time/60)) } minutes total).");
+
+	$sth_victims->finish;
+	$sth_dontuse->finish;
+
+	$self->update_feed($feed_no, { feed_enabled => 0 });
+
+	return;
+}
+
 sub update_feed {
 	my ($self, $feed_no, $updates) = @_;
 
