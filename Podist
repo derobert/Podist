@@ -90,7 +90,7 @@ my %MIME_MAP = (
 	opus => 'audio/ogg; codecs=opus'
 );
 
-exit go();
+exit go(@ARGV = @ARGV); # https://rt.perl.org/Ticket/Display.html?id=131192
 ### functions only below ###
 
 sub go {
@@ -106,7 +106,11 @@ sub go {
 			return;
 		}
 		$Log::Log4perl::caller_depth++;
-		LOGDIE longmess(@_);
+		eval { LOGDIE longmess(@_) };
+		FATAL("Tried to give nice error, but Carp::longmess failed. Might be Perl bug 131192. Carp blew up with:");
+		FATAL("   $@");
+		FATAL("First error (without backtrace) follows:");
+		LOGDIE("   @_");
 	};
 
 	unless (@ARGV) {
