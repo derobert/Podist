@@ -111,13 +111,16 @@
             ... or the oldest.
         </note>
     </note>
-    <note priority="medium" time="1517772631">
+    <note priority="medium" time="1517772631" done="1547349304">
         fsck improvements
-        <note priority="medium" time="1517773306">
+        <note priority="medium" time="1517773306" done="1547349298">
             enclosure_store that makes no sense (e.g., pending + playlisted)
         </note>
-        <note priority="medium" time="1517772649">
+        <note priority="medium" time="1517772649" done="1546446965">
             Check for playlisted + enclosure_use=0
+            <comment>
+                Fixing might be non-trivial (since might require moving the file back &amp; updating enclosure_store) but at least this will find it.
+            </comment>
         </note>
     </note>
     <note priority="medium" time="1445791807">
@@ -287,8 +290,11 @@
         <note priority="low" time="1546046846" done="1546274859">
             Test complicated (custom) logging config; probably also useful to get the color coding out of the TAP logs
         </note>
-        <note priority="low" time="1546046108">
+        <note priority="low" time="1546046108" done="1546441859">
             Test invalid speech config (unknown engine, bad voice syntax, unknown audio format, etc.)
+            <comment>
+                I think we're testing all that's really worth testing.
+            </comment>
         </note>
         <note priority="low" time="1546046030">
             Test with more than one random item
@@ -296,10 +302,10 @@
         <note priority="low" time="1546045868">
             Test config variants: various choice methods
         </note>
-        <note priority="low" time="1546045810">
+        <note priority="low" time="1546045810" done="1546441929">
             Test config variants: speech to MP3
         </note>
-        <note priority="low" time="1546045692">
+        <note priority="low" time="1546045692" done="1546444723">
             Test fsck with problems
         </note>
         <note priority="low" time="1546045603">

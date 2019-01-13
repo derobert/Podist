@@ -931,6 +931,21 @@ QUERY
 	}
 	$sth->finish;
 
+	TRACE(q{Looking for don't use yet on playlist});
+	$sth = $DB->prepare(<<QUERY);
+SELECT e.enclosure_no, e.playlist_no
+  FROM enclosures e
+  WHERE
+    e.enclosure_use = 0
+    AND e.playlist_no IS NOT NULL
+QUERY
+	$sth->execute;
+	while (my ($eno, $pno) = $sth->fetchrow_array) {
+		++$problems;
+		ERROR("Enclosure number $eno is set use=0 but is on playlist $pno.");
+	}
+	$sth->finish;
+
 	$problems += $STORAGE->fsck;
 
 	if ($problems) {

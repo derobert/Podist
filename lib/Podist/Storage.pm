@@ -413,7 +413,8 @@ sub archive_playlist {
 sub fsck {
 	my ($self) = @_;
 
-	return $self->_fsck_missing_store + $self->_fsck_check_exists;
+	return $self->_fsck_missing_store + $self->_fsck_check_exists
+		+ $self->_fsck_weird_store;
 }
 
 sub _fsck_missing_store {
@@ -451,7 +452,10 @@ sub _fsck_missing_store {
 		if (!defined $p_no && $e_use) {
 			$store = 'pending';
 		} elsif (!defined $p_no && !$e_use) {
-			$store = 'unusable';
+			foreach my $possible (qw(pending unusable)) {
+				$store = $possible;
+				last if -e $self->_compute_media_path($store, $p_no, $e_file)
+			}
 		} elsif (defined $p_no && !defined($p_arch)) {
 			$store = 'original';
 		} elsif (defined $p_no && defined($p_arch)) {
@@ -501,6 +505,53 @@ sub _fsck_check_exists {
 	}
 
 	return $prob_count;
+}
+
+sub _fsck_weird_store {
+	my $self = shift;
+
+	# TODO: move these to constraints someday
+
+	my %queries = (
+		'Usable enclosure in unusable store' =>
+			q{enclosure_use = 1 AND enclosure_store = 'unusable'},
+		'Playlisted enclosure in unusable store' =>
+			q{playlist_no IS NOT NULL AND enclosure_store = 'unusable'},
+		'Playlisted enclosure in pending store' =>
+			q{playlist_no IS NOT NULL AND enclosure_store = 'pending'},
+
+		# refs mean full query. These two would be hard/impossible as
+		# constraints, at least in SQLite.
+		'Enclosure has archived store on non-archived playlist' => 
+			\q{SELECT e.enclosure_no
+			    FROM enclosures e
+			    JOIN playlists p ON (e.playlist_no = p.playlist_no)
+			   WHERE p.playlist_archived IS NULL
+			     AND e.enclosure_store IN ('archived', 'archived-legacy')},
+		'Enclosure has non-archived store on archived playlist' => 
+			\q{SELECT e.enclosure_no
+			    FROM enclosures e
+			    JOIN playlists p ON (e.playlist_no = p.playlist_no)
+			   WHERE p.playlist_archived IS NOT NULL
+			     AND e.enclosure_store NOT IN ('archived', 'archived-legacy')},
+	);
+
+	my $tot_probs = 0;
+	while (my ($desc, $where) = each %queries) {
+		TRACE("Checking: $desc");
+		my $sth = $self->_db->prepare(ref($where) ? $$where : qq{
+			SELECT enclosure_no
+			  FROM enclosures
+			 WHERE $where
+		});
+		$sth->execute;
+		while (my ($e_no) = $sth->fetchrow_array) {
+			WARN("$desc: #$e_no");
+			++$tot_probs;
+		}
+	}
+
+	return $tot_probs;
 }
 
 sub _safe_move {

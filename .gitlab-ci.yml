@@ -24,7 +24,7 @@ after_script:
 
 .common-script: &common-script
   - if [ "$PODIST_CI_DO_COVERAGE" = "y" ]; then echo 'Doing coverage'; cover -delete; export HARNESS_PERL_SWITCHES='-MDevel::Cover=+ignore,^t\\/,+ignore,^\\/usr\\/'; fi
-  - PODIST_CI_PARALLEL=$( [ $(nproc) -gt 1 ] && echo 2 || echo 1)
+  - PODIST_CI_PARALLEL=$( [ $(nproc) -gt 1 ] && echo 3 || echo 1)
   - printf 'Running with prove -j%d\n' $PODIST_CI_PARALLEL
   - LIVE_DANGEROUSLY=1 prove -a artifacts/tap/ -j$PODIST_CI_PARALLEL t/system-testing/basic-usage.t t/
   - if [ "$PODIST_CI_DO_COVERAGE" = "y" ]; then cover -report html_basic -output artifacts/cover_html; fi
