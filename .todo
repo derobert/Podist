@@ -111,9 +111,9 @@
             ... or the oldest.
         </note>
     </note>
-    <note priority="medium" time="1517772631">
+    <note priority="medium" time="1517772631" done="1547349304">
         fsck improvements
-        <note priority="medium" time="1517773306">
+        <note priority="medium" time="1517773306" done="1547349298">
             enclosure_store that makes no sense (e.g., pending + playlisted)
         </note>
         <note priority="medium" time="1517772649" done="1546446965">

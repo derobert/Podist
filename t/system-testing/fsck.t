@@ -10,7 +10,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 28;
+plan_dangerously_or_exit tests => 34;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -100,6 +100,37 @@ like( $stderr, qr/Number of problems remaining after fsck: 1\.$/m,
 $dbh->do(q{UPDATE enclosures SET enclosure_use = 1 WHERE enclosure_no = ?},
 	{}, $res->{enclosure_no});
 note("Put enclosure_no $res->{enclosure_no} back right.");
+
+
+# enclosure_store for _fsck_weird_store
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NOT NULL AND enclosure_store='original' });
+long_note("Going to corrupt store of this already-playlisted one:", pp $res);
+$dbh->do(q{UPDATE enclosures SET enclosure_store = 'unusable' WHERE enclosure_no = ?}, {}, $res->{enclosure_no});
+run3 [@$podist, qw(fsck)], undef, \$stdout, \$stderr;
+check_run("fsck runs after corrupting store of a playlisted", $stdout, $stderr);
+like($stderr, qr/^ \[ \s+ \d+ [ ] E/max, "Found errors during fsck");
+like(
+	$stderr,
+	qr/Not found: non-archived file/am,
+	"Found expected error 1 (file not found)"
+);
+like(
+	$stderr,
+	qr/Usable enclosure in unusable store: #\d+$/am,
+	"Found expected error 1 (usable in unusable)"
+);
+like(
+	$stderr,
+	qr/Playlisted enclosure in unusable store: #\d+$/am,
+	"Found expected error 1 (playlisted in unusable)"
+);
+like( $stderr, qr/Number of problems remaining after fsck: 3\.$/m,
+	"Found expected problem count"
+);
+$dbh->do(q{UPDATE enclosures SET enclosure_store = 'original' WHERE enclosure_no = ?},
+	{}, $res->{enclosure_no});
+note("Put enclosure_no $res->{enclosure_no} store back right.");
+
 
 # now let's do some permanent damage... delete an enclosure file
 $res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});
