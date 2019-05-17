@@ -37,14 +37,14 @@ while IFS= read -r -d $'\0' -u 8 fin; do # fd 8 is "find" at end of loop; pipe w
 	fi
 
 	# the following is vomit-worthy. Thank you, ffmpeg.
-	IFS=' ' read -u 9 -r I TP LRA THRESH 9< <( 
+	IFS=' ' read -u 9 -r I TP LRA THRESH OFFSET 9< <(
 		ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a loudnorm=$target:print_format=json -f null - \
 			|& grep '^{$' -A99 \
-			| jq -r '.input_i, .input_tp, .input_lra, .input_thresh' \
+			| jq -r '.input_i, .input_tp, .input_lra, .input_thresh, .target_offset' \
 			| tr '\n' ' '
 		echo
 	)
-	echo "   I=$I TP=$TP LRA=$LRA THRESH=$THRESH" >&2
+	echo "   I=$I TP=$TP LRA=$LRA THRESH=$THRESH OFFSET=$OFFSET" >&2
 
 	# now, decide if we're going to use loudnorm or volume to apply the
 	# change. This is a workaround due to a stupid limitation in
@@ -56,7 +56,7 @@ while IFS= read -r -d $'\0' -u 8 fin; do # fd 8 is "find" at end of loop; pipe w
 	# always a fun thing!
 	if echo "$I $target_LUFS" | awk '{ exit !($1 < $2) }'; then
 		# still have to grep this because fuck you ffmpeg
-		filter="loudnorm=$target:linear=true:print_format=summary:measured_i=$I:measured_lra=$LRA:measured_tp=$TP:measured_thresh=$THRESH"
+		filter="loudnorm=$target:linear=true:print_format=summary:measured_i=$I:measured_lra=$LRA:measured_tp=$TP:measured_thresh=$THRESH:offset=$OFFSET"
 		ffmpeg "${ffshutup[@]}" -i "$fin" -filter:a "$filter" -c:a libopus -ar 48000 -vbr on -b:a 128k -y "$fout" \
 			|& grep -E '^(Output (Integrated|True Peak|LRA|Threshold)|Normalization Type|Target Offset)' \
 			| sed -e "s/Dynamic/${smso}Dynamic${rmso}/; s/^/   /" \
