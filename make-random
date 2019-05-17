@@ -2,7 +2,7 @@
 set -e -o pipefail
 shopt -s extglob
 
-target_LUFS=-23
+target_LUFS=-16
 target=i=$target_LUFS:tp=-2:lra=20:dual_mono=true
 
 ffshutup=(-nostdin -hide_banner -nostats -loglevel info)
