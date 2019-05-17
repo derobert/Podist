@@ -36,8 +36,11 @@
     <note priority="low" time="1544749830">
         Weight by ln(unplayed) so more-unplayed feeds get more plays, but not overwhelmingly.
     </note>
-    <note priority="low" time="1530643281">
+    <note priority="low" time="1530643281" done="1547479328">
         Combined add+fetch to make it easy to do a temporary limit override for new podcasts
+        <comment>
+            With add now spitting out the feed number, easy enough to do both.
+        </comment>
     </note>
     <note priority="low" time="1530643237" done="1544749670">
         Easy way to disable a podcast and optionally dont-use all its remaining episodes
@@ -45,11 +48,17 @@
             Duplicate of 25 (drop podcasts), but 25 is better specified.
         </comment>
     </note>
-    <note priority="low" time="1530244001">
+    <note priority="low" time="1530244001" done="1548218685">
         Support podcasts before the Unix epoch (such as BBC Reith Lectures). Let *_when be negative.
+        <comment>
+            Moved to GitLab issue #5
+        </comment>
     </note>
-    <note priority="low" time="1519746182">
+    <note priority="low" time="1519746182" done="1548218747">
         Store article text, etc. from original feed so can re-add them to the generated feed
+        <comment>
+            Moved to GitLab issue #6
+        </comment>
     </note>
     <note priority="low" time="1518250138" done="1535223350">
         Speech output is truncated. Seems to be from asking it for a given frequency (sample rate). Debian bug #890018. (Could work around by using sox to resample).
@@ -105,10 +114,16 @@
             feed / include / speech is not yet implemented; marked as TODO in Podist
         </note>
     </note>
-    <note priority="medium" time="1530643199">
+    <note priority="medium" time="1530643199" done="1548218924">
         Way to grab first X items when limit is exceeded (instead of rolling back and grabbing none). Good for long podcasts where maybe you want to sample the newest episodes.
-        <note priority="medium" time="1535223324">
+        <comment>
+            Moved to GitLab issue #7
+        </comment>
+        <note priority="medium" time="1535223324" done="1548219009">
             ... or the oldest.
+            <comment>
+                (also moved to GitLab issue #7)
+            </comment>
         </note>
     </note>
     <note priority="medium" time="1517772631" done="1547349304">
@@ -186,11 +201,17 @@
             done
         </comment>
     </note>
-    <note priority="high" time="1546064277">
+    <note priority="high" time="1546064277" done="1548218474">
         Work around text2wav truncations on Stretch (Debian bug #890018)
+        <comment>
+            Moved to GitLab issue #4
+        </comment>
     </note>
-    <note priority="high" time="1545387721">
+    <note priority="high" time="1545387721" done="1548218309">
         BUG: Crashes if there are no random items. Ideally should just turn off random items, but at least shouldn't die with a division by zero.
+        <comment>
+            Moved to GitLab issue #3
+        </comment>
     </note>
     <note priority="high" time="1535223623" done="1547335989">
         Add an easy way to drop podcasts. Need to consider how they should be marked in the DB (article_use is obvious, but some places ignore). Right now manually marking enclosures as enclosure_use=0, but that does have the issue of if a different podcast links to the same enclosure (if that ever happens in the real world)

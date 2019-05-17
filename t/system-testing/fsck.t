@@ -40,7 +40,9 @@ for (1..2) {
 run3 [@$podist, qw(archive 1)], undef, \$stdout, \$stderr;
 check_run("archived playlist 1", $stdout, $stderr);
 
-$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});
+# don't-use a two enclosures, but not no. 1 because later tests play
+# with enclosure 1. Clean up one of them, so we test both states.
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 AND enclosure_no != 1 LIMIT 1});
 long_note("Going to don't-use this one and then Podist cleanup:", pp $res);
 $dbh->do(q{UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?},
 	{}, $res->{enclosure_no});
@@ -48,7 +50,7 @@ $dbh->do(q{UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?},
 run3 [@$podist, qw(cleanup)], undef, \$stdout, \$stderr;
 check_run("Podist cleanup OK", $stdout, $stderr);
 
-$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 LIMIT 1});
+$res = $dbh->selectrow_hashref(q{SELECT * from enclosures WHERE playlist_no IS NULL AND enclosure_use = 1 AND enclosure_no != 1 LIMIT 1});
 long_note("Going to don't-use this one, but not clean it up:", pp $res);
 $dbh->do(q{UPDATE enclosures SET enclosure_use = 0 WHERE enclosure_no = ?},
 	{}, $res->{enclosure_no});
