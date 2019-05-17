@@ -3,6 +3,26 @@ set -e -o pipefail
 shopt -s extglob
 
 target_LUFS=-16
+redo_all=
+
+while getopts 'hrl:' opt; do
+	case "$opt" in
+		r) redo_all=yes        ;;
+		l) target_LUFS=$OPTARG ;;
+		h|'?')
+			cat <<USAGE
+Usage: $0 [ -r ] [ -l LUFS ]
+       $0 -h
+
+  -r: re-do all files, useful to change loudness target.
+  -l: loudness target, in LUFS. E.g., -16.
+  -h: help (this message)
+USAGE
+			exit
+			;;
+	esac
+done
+
 target=i=$target_LUFS:tp=-2:lra=20:dual_mono=true
 
 ffshutup=(-nostdin -hide_banner -nostats -loglevel info)
@@ -23,7 +43,7 @@ while IFS= read -r -d $'\0' -u 8 fin; do # fd 8 is "find" at end of loop; pipe w
 	fout="random/$fshort.opus"
 	found_input[$fout]=y
 
-	if [ -f "$fout" ] && ! [ "$fout" -nt "$fin" ] && ! [ "$fout" -ot "$fin" ]; then
+	if [ -z "$redo_all" ] && [ -f "$fout" ] && ! [ "$fout" -nt "$fin" ] && ! [ "$fout" -ot "$fin" ]; then
 		continue
 	fi
 
