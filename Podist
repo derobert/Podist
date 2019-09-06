@@ -1891,6 +1891,10 @@ sub USER_AGENT() {
 			env_proxy => 1,
 			keep_alive => 4, # Some podcasts love redirects
 			cookie_jar => { }, # temp only
+			ssl_opts => {
+				verify_hostname => 1,
+				SSL_cipher_list => 'DEFAULT@SECLEVEL=1',
+			}
 		);
 
 		$agent->default_header(
