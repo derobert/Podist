@@ -1509,8 +1509,11 @@ sub find_random_items {
 	my $randommedia = notaint(CONFIG->{storage}{randommedia});
 	find({
 			wanted => sub {
-				-f -r $File::Find::fullname
-					or return;
+				unless (-f -r $File::Find::fullname) {
+					-d $File::Find::fullname
+						or WARN("$File::Find::fullname is not -f and -r");
+					return;
+				}
 				(my $relname = $File::Find::name) =~ s!^\Q$randommedia/\E!!
 					or LOGCONFESS("Couldn't strip RandomMedia from $File::Find::name");
 				my $dat = $DB->find_or_add_random($relname);
