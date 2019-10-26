@@ -42,6 +42,15 @@ has _loudness_range => (
 	coerce   => 1
 );
 
+has _tempo => (
+	init_arg => 'tempo',
+	required => 1,
+	is       => 'ro',
+	isa      => 'Podist::Tempo',
+	default  => 1.0,
+	coerce   => 1,
+);
+
 has _encoder => (
 	init_arg => 'encoder',
 	required => 1,
@@ -271,8 +280,15 @@ sub _fast_fake_process {
 sub _get_filter {
 	my ($self, $mode, $info) = @_;
 	my $res;
+
+	if (abs($self->_tempo - 1) > 0.0001) {
+		$res .= 'rubberband=tempo=' . $self->_tempo;
+		$res .= ':pitchq=quality';
+		$res .= ',';
+	}
+
 	if ('loudnorm' eq $mode) {
-		$res = 'loudnorm=I=' . $self->_loudness;
+		$res .= 'loudnorm=I=' . $self->_loudness;
 		$res .= ':LRA=' . ($self->_loudness_range//20); # max per ffmpeg
 		$res .= ':print_format=json';
 		$res .= ':dual_mono=true';
@@ -283,7 +299,7 @@ sub _get_filter {
 		$res .= ':offset=' . $info->{offset} if defined $info;
 	} elsif ('volume' eq $mode) {
 		$info or confess "BUG: no first-pass info in volume mode";
-		$res = 'volume=replaygain=drop';
+		$res .= 'volume=replaygain=drop';
 		$res .= ':volume=' . ($self->_loudness - $info->{loudness}) . 'dB';
 	}
 
@@ -387,7 +403,7 @@ sub _read_ffmpeg_json {
 
 	# unfortunately, ffmpeg will not completely shut up and only give
 	# us the JSON, so we have to look for it.
-	if ($stderr =~ /^\[Parsed_loudnorm_0.+?\]\s*^(\{.+\})/ms) {
+	if ($stderr =~ /^\[Parsed_loudnorm_.+?\]\s*^(\{.+\})/ms) {
 		return decode_json($1);
 	} else {
 		return undef;
