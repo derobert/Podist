@@ -308,15 +308,26 @@ DataDir $confdir # e.g., \$HOME/.podist
 </playlist>
 
 <processing>
-    <profile default>
+    <profile base>
         Loudness       -23 LUFS
         LoudnessRange  unlimited
         Encoder        lame-vbr   # lame-vbr, lame-cbr, vorbis, opus
-        EncodeQuality  2          # meaning depends on Encoder
+        EncodeQuality  4          # meaning depends on Encoder
+    </profile>
+    <profile default>
+        BasedOn        base
+		# If you want all your podcasts to be sped up (time stretching),
+		# uncomment this:
+		# Tempo          1.3x
     </profile>
     <profile compress>
         BasedOn        default
         LoudnessRange  5 LU
+    </profile>
+    <profile music>
+    	BasedOn        base
+    	Tempo          1x
+    	EncodeQuality  2
     </profile>
 </processing>
 

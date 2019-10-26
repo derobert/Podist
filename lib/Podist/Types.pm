@@ -29,6 +29,19 @@ coerce 'Podist::LU',
 		die "Unparsable volume: $_";
 	};
 
+subtype 'Podist::Tempo'
+	=> as 'Num'
+	=> where { $_ > 0 }
+	=> message { 'Tempo must be positive, non-zero' };
+
+coerce 'Podist::Tempo',
+	from 'Str',
+	via {
+		/^([0-9.]+)(?: \s* x)?$/ix and return 0 + $1;
+		/^([0-9.]+) \s* %$/x       and return 0.01 * $1;
+		die "Unparseable tempo: $_";
+	};
+
 subtype 'Podist::Quality'
 	=> as 'Num';
 
