@@ -308,6 +308,7 @@ DataDir $confdir # e.g., \$HOME/.podist
 </playlist>
 
 <processing>
+	Parallel 0
     <profile base>
         Loudness       -23 LUFS
         LoudnessRange  unlimited
