@@ -369,14 +369,18 @@ sub add_processed {
 	defined(my $duration = $opts{duration}) or croak "duration required";
 	defined(my $cputime = $opts{cputime})   or croak "cputime required";
 	defined(my $store = $opts{store})       or croak "store required";
+	defined(my $pid = $opts{pid})           or croak "pid required";
+	defined(my $parallel = $opts{parallel}) or croak "parallel required";
 
 	my $sth = $self->prepare_cached(q{
 		INSERT INTO processed(
 		  enclosure_no, playlist_no, processed_profile,
-		  processed_duration, processed_cputime, processed_store
-		) VALUES (?, ?, ?, ?, ?, ?)
+		  processed_duration, processed_cputime, processed_store,
+		  processed_pid, processed_parallel
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	});
-	$sth->execute($e_no, $p_no, $prof, $duration, $cputime, $store);
+	$sth->execute($e_no, $p_no, $prof, $duration, $cputime, $store, $pid,
+		$parallel);
 
 	my $proc_no = $self->last_insert_id('', '', 'processed', 'processed_no');
 	return $proc_no;
@@ -664,7 +668,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 8;
+	my $current_vers = 9;
 
 	# Versions:
 	# 0 - no db yet
@@ -677,6 +681,7 @@ sub _get_migrations {
 	# 7 - store random music selections in db
 	# 8 - more explicit storage location in db (enclosures & playlists),
 	#     support for processed versions
+	# 9 - store parallel processing info in db
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -1018,6 +1023,9 @@ INSERT INTO random_uses
 SQL
 	}
 
+	if ($db_vers == 8) {
+		push @sql, q{ALTER TABLE processed RENAME TO processed_v8};
+	}
 
 	if ($db_vers < 8) {
 		push @sql, <<SQL;
@@ -1036,12 +1044,26 @@ CREATE TABLE speeches (
 )
 SQL
 		push @sql, <<SQL;
+CREATE TABLE processed_parts (
+  processed_no       INTEGER   NOT NULL REFERENCES processed,
+  proc_part_so       INTEGER   NOT NULL,
+  proc_part_file     TEXT      NOT NULL,
+
+  PRIMARY KEY(processed_no, proc_part_so)
+)
+SQL
+	}
+
+	if ($db_vers < 9 ) {
+		push @sql, <<SQL;
 CREATE TABLE processed (
   processed_no       INTEGER   NOT NULL PRIMARY KEY,
   enclosure_no       INTEGER   NOT NULL UNIQUE,
   playlist_no        INTEGER   NOT NULL,
   processed_profile  TEXT      NOT NULL,
   processed_duration REAL      NOT NULL,
+  processed_parallel INTEGER   NOT NULL,
+  processed_pid      INTEGER   NULL,
   processed_cputime  REAL      NOT NULL,
   processed_store    TEXT      NOT NULL,
   
@@ -1053,20 +1075,25 @@ CREATE TABLE processed (
   )
 )
 SQL
-		push @sql, <<SQL;
-CREATE TABLE processed_parts (
-  processed_no       INTEGER   NOT NULL REFERENCES processed,
-  proc_part_so       INTEGER   NOT NULL,
-  proc_part_file     TEXT      NOT NULL,
+	}
 
-  PRIMARY KEY(processed_no, proc_part_so)
-)
+	if ($db_vers == 8) {
+		push @sql, <<SQL;
+INSERT INTO processed(
+	processed_no, enclosure_no, playlist_no,
+	processed_profile, processed_duration, processed_parallel,
+	processed_pid, processed_cputime, processed_store
+) SELECT
+    processed_no, enclosure_no, playlist_no,
+    processed_profile, processed_duration, 0 AS processed_parallel,
+    NULL AS processed_pid, processed_cputime, processed_store
+  FROM processed_v8
 SQL
 	}
 
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 8};
+	push @sql, q{PRAGMA user_version = 9};
 
 	return \@sql;
 }
@@ -1078,10 +1105,11 @@ sub _build_dbh {
 	my $dbh = DBI->connect(
 		$self->dsn, $self->username, $self->password,
 		{
-			AutoCommit       => 0,
-			RaiseError       => 1,
-			PrintError       => 0,
-			FetchHashKeyName => 'NAME_lc',
+			AutoCommit          => 0,
+			RaiseError          => 1,
+			PrintError          => 0,
+			FetchHashKeyName    => 'NAME_lc',
+			AutoInactiveDestroy => 1,
 		});
 
 	# Migrations depend on foreign keys being off (to prevent renaming
