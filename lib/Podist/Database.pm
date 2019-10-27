@@ -1075,7 +1075,7 @@ SQL
 
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 8};
+	push @sql, q{PRAGMA user_version = 9};
 
 	return \@sql;
 }
