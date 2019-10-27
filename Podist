@@ -36,6 +36,7 @@ use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
 use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
+use Parallel::ForkManager;
 use POSIX qw(strftime);
 use Term::Size::Any qw(!:DEFAULT);    # need to call ->import w/o polution
 use Text::ASCIITable;
@@ -1620,6 +1621,8 @@ sub process {
 		= map Podist::Processor->new(NC_temp_maker => $tmp_maker, %$_),
 		values %{CONFIG->{processing}{profile}};
 
+	my $pm = Parallel::ForkManager->new(CONFIG->{processing}{parallel});
+
 	foreach my $playlist_no (@playlists) {
 		my $enclosures_info = $DB->get_processing_info($playlist_no);
 		foreach my $info (@$enclosures_info) {
@@ -1630,35 +1633,58 @@ sub process {
 			my $profile = $info->{feed_proc_profile};
 			exists $processors{$profile}
 				or LOGDIE(qq{Feed #$info->{feed_no} ($info->{feed_name}) has unknown profile "$info->{feed_proc_profile}"});
-			INFO(qq{Processing enclosure $info->{enclosure_no} from Playlist $playlist_no#$info->{playlist_so}});
-			my $cpu_before = sum(times);
-			my $outfiles = $processors{$profile}->process(
-				$STORAGE->get_enclosure_path($info->{enclosure_no}));
-			my $cpu_after = sum(times);
-			my $cputime = $cpu_after - $cpu_before;
-			my $duration = $info->{enclosure_time};    # FIXME
-			my $proc_no = $DB->add_processed(
-				enclosure_no => $info->{enclosure_no},
-				playlist_no  => $playlist_no,
-				profile      => $profile,
-				duration     => $duration,
-				cputime      => $cputime,
-				store        => 'processed'
+
+			my $in_path = $STORAGE->get_enclosure_path($info->{enclosure_no});
+			my $child = $pm->start_child(
+				sub {
+					INFO(
+						qq{Processing enclosure $info->{enclosure_no} from Playlist $playlist_no#$info->{playlist_so} in pid $$}
+					);
+					my $cpu_before = sum(times);
+					my $outfiles   = $processors{$profile}->process($in_path);
+					my $cpu_after  = sum(times);
+					my $cputime    = $cpu_after - $cpu_before;
+					return {outfiles => $outfiles, cputime => $cputime};
+				});
+			$pm->run_on_finish(
+				sub {
+					my ($pid, $excode, undef, $exsig, $exdump, $data) = @_;
+					$excode || $exsig
+						and
+						LOGDIE("Processing child blew up (code $excode, signal $exsig");
+
+					my $duration = $info->{enclosure_time};    # FIXME
+					my $proc_no  = $DB->add_processed(
+						enclosure_no => $info->{enclosure_no},
+						playlist_no  => $playlist_no,
+						profile      => $profile,
+						duration     => $duration,
+						cputime      => $data->{cputime},
+						pid          => $pid,
+						parallel     => CONFIG->{processing}{parallel},
+						store        => 'processed'
+					);
+					TRACE("Got files @{$data->{outfiles}}");
+					for (my $i = 0; $i < @{$data->{outfiles}}; ++$i) {
+						$STORAGE->save_processed_temp(
+							temp         => $data->{outfiles}[$i],
+							playlist_no  => $playlist_no,
+							playlist_so  => $info->{playlist_so},
+							processed_no => $proc_no,
+							proc_part_so => $i,
+							store        => 'processed',
+						);
+					}
+					INFO(
+						"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $duration/$data->{cputime} : 'inf ' ]}x"
+					);
+				},
+				$child
 			);
-			TRACE("Got files @$outfiles");
-			for (my $i = 0; $i < @$outfiles; ++$i) {
-				$STORAGE->save_processed_temp(
-					temp         => $outfiles->[$i],
-					playlist_no  => $playlist_no,
-					playlist_so  => $info->{playlist_so},
-					processed_no => $proc_no,
-					proc_part_so => $i,
-					store        => 'processed',
-				);
-			}
-			DEBUG("Finished $info->{enclosure_no} in ${cputime}s, @{[ $cputime ? $duration/$cputime : 'inf ' ]}x");
 		}
 	}
+
+	$pm->wait_all_children;
 }
 
 sub feed {

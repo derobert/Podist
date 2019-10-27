@@ -369,14 +369,18 @@ sub add_processed {
 	defined(my $duration = $opts{duration}) or croak "duration required";
 	defined(my $cputime = $opts{cputime})   or croak "cputime required";
 	defined(my $store = $opts{store})       or croak "store required";
+	defined(my $pid = $opts{pid})           or croak "pid required";
+	defined(my $parallel = $opts{parallel}) or croak "parallel required";
 
 	my $sth = $self->prepare_cached(q{
 		INSERT INTO processed(
 		  enclosure_no, playlist_no, processed_profile,
-		  processed_duration, processed_cputime, processed_store
-		) VALUES (?, ?, ?, ?, ?, ?)
+		  processed_duration, processed_cputime, processed_store,
+		  processed_pid, processed_parallel
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	});
-	$sth->execute($e_no, $p_no, $prof, $duration, $cputime, $store);
+	$sth->execute($e_no, $p_no, $prof, $duration, $cputime, $store, $pid,
+		$parallel);
 
 	my $proc_no = $self->last_insert_id('', '', 'processed', 'processed_no');
 	return $proc_no;
