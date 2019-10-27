@@ -36,6 +36,7 @@ use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
 use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
+use Parallel::ForkManager;
 use POSIX qw(strftime);
 use Term::Size::Any qw(!:DEFAULT);    # need to call ->import w/o polution
 use Text::ASCIITable;
@@ -1614,8 +1615,12 @@ sub process {
 	#TODO: handle 'Playlist 123', not just '123'. Like archive.
 	my @playlists = @ARGV ? @ARGV : @{$DB->get_playlist_list(1)};
 
-	my %processors;
 	my $tmp_maker = sub { $STORAGE->new_processed_temp(shift) };
+	my %processors;
+	@processors{keys %{CONFIG->{processing}{profile}}}
+		= map Podist::Processor->new(NC_temp_maker => $tmp_maker, %$_),
+		values %{CONFIG->{processing}{profile}};
+
 	foreach my $playlist_no (@playlists) {
 		my $enclosures_info = $DB->get_processing_info($playlist_no);
 		foreach my $info (@$enclosures_info) {
@@ -1624,11 +1629,8 @@ sub process {
 				next;
 			}
 			my $profile = $info->{feed_proc_profile};
-			exists CONFIG->{processing}{profile}{$profile}
+			exists $processors{$profile}
 				or LOGDIE(qq{Feed #$info->{feed_no} ($info->{feed_name}) has unknown profile "$info->{feed_proc_profile}"});
-			$processors{$profile} //= Podist::Processor->new(
-				NC_temp_maker => $tmp_maker,
-				%{CONFIG->{processing}{profile}{$profile}});
 			INFO(qq{Processing enclosure $info->{enclosure_no} from Playlist $playlist_no#$info->{playlist_so}});
 			my $cpu_before = sum(times);
 			my $outfiles = $processors{$profile}->process(
