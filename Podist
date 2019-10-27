@@ -36,7 +36,6 @@ use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
 use Number::Format qw(format_number);
 use Ogg::Vorbis::Header::PurePerl;
-use Parallel::ForkManager;
 use POSIX qw(strftime);
 use Term::Size::Any qw(!:DEFAULT);    # need to call ->import w/o polution
 use Text::ASCIITable;
