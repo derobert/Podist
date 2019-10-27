@@ -1651,7 +1651,7 @@ sub process {
 					my ($pid, $excode, undef, $exsig, $exdump, $data) = @_;
 					$excode || $exsig
 						and
-						LOGDIE("Processing child blew up (code $excode, signal $exsig");
+						LOGDIE("Processing child blew up (code $excode, signal $exsig)");
 
 					my $duration = $info->{enclosure_time};    # FIXME
 					my $proc_no  = $DB->add_processed(
