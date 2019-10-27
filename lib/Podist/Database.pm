@@ -664,7 +664,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 8;
+	my $current_vers = 9;
 
 	# Versions:
 	# 0 - no db yet
@@ -677,6 +677,7 @@ sub _get_migrations {
 	# 7 - store random music selections in db
 	# 8 - more explicit storage location in db (enclosures & playlists),
 	#     support for processed versions
+	# 9 - store parallel processing info in db
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -1042,6 +1043,8 @@ CREATE TABLE processed (
   playlist_no        INTEGER   NOT NULL,
   processed_profile  TEXT      NOT NULL,
   processed_duration REAL      NOT NULL,
+  processed_parallel INTEGER   NOT NULL DEFAULT 0,
+  processed_pid      INTEGER   NULL,
   processed_cputime  REAL      NOT NULL,
   processed_store    TEXT      NOT NULL,
   
@@ -1062,6 +1065,12 @@ CREATE TABLE processed_parts (
   PRIMARY KEY(processed_no, proc_part_so)
 )
 SQL
+	}
+
+	if ($db_vers == 8) {
+		push @sql,
+			q{ALTER TABLE processed ADD COLUMN processed_parallel INTEGER NOT NULL DEFAULT 0},
+			q{ALTER TABLE processed ADD COLUMN processed_pid INTEGER NULL};
 	}
 
 
