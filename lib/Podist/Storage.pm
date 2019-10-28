@@ -27,9 +27,17 @@ has _config => (
 has _temps => (
 	required => 0,
 	is       => 'ro',
+	writer   => '_set_temps_group_internal',
 	isa      => 'HashRef',
 	init_arg => undef,
 	default  => sub { { } },
+);
+
+has _temp_groups => (
+	required => 0,
+	is       => 'ro',
+	isa      => 'ArrayRef',
+	default  => sub { [] },
 );
 
 sub BUILD {
@@ -51,6 +59,63 @@ sub BUILD {
 	}
 
 	return;
+}
+
+sub start_temp_group {
+	my ($self, $name) = @_;
+
+	push @{$self->_temp_groups}, {
+		name   => $name,
+		caller => [caller],
+		temps  => $self->_temps,
+	};
+
+	$self->_set_temps_group_internal( { } );
+	return;
+}
+
+sub end_temp_group {
+	my ($self, $name) = @_;
+
+	@{$self->_temp_groups}
+		or croak "Tried to end a temp group when none started";
+
+	my $cand = $self->_temp_groups->[-1];
+	$name eq $cand->{name}
+		or croak "Tried to end $name, but $cand->{name} from ${\join(q{, }, $cand->{caller})} is on top";
+
+	$self->_warn_leaked_temps;
+	$self->_set_temps_group_internal( $cand->{temps} );
+	pop @{$self->_temp_groups};
+
+	return;
+}
+
+sub stop_tracking_temp {
+	my ($self, $tmp) = @_;
+
+	delete $self->_temps->{$tmp}
+		or confess "Tried to stop tracking unknown temp $tmp";
+
+	return;
+}
+
+sub start_tracking_temp {
+	my ($self, $tmp) = @_;
+
+	exists $self->_temps->{$tmp}
+		and confess "Tried to start tracking a temp we're already tracking: $tmp";
+
+	$self->_temps->{$tmp} = 1;
+
+	return;
+}
+
+
+sub _in_temp_group {
+	my $self = shift;
+
+	return 0 != @{$self->_temp_groups};
 }
 
 sub new_dl_temp {
@@ -182,11 +247,11 @@ sub new_processed_temp {
 		# or mktemp instead, but those don't take DIR. So they'd
 		# actually be insecure...
 		#
-		# TODO: Remove if we switch to opusenc, which will probably be
-		#       required to get art copied over.
+		# Also, put the pid in here because otherwise we get the same
+		# name due to the fork from Parallel::ForkManager.
 		local $^W = 0;
 		(undef, $tmp) = tempfile(
-			'processed.XXXXXX',
+			"processed.$$.XXXXXX",
 			DIR    => $self->_config->{processedmedia},
 			SUFFIX => $suffix,
 			OPEN   => 0,
@@ -577,12 +642,19 @@ sub _safe_move {
 	move($src, $dst) or confess "move($src, $dst): $!";
 }
 
-sub DEMOLISH {
-	my ($self, $in_global) = @_;
-
+sub _warn_leaked_temps {
+	my $self = shift;
 	foreach my $k (keys %{$self->_temps}) {
 		cluck("Leftover temporary $k is being leaked");
 	}
+	return;
+}
+
+sub DEMOLISH {
+	my ($self, $in_global) = @_;
+
+	$self->_end_temp_group while $self->_in_temp_group;
+	$self->_warn_leaked_temps;
 }
 
 __PACKAGE__->meta->make_immutable;
