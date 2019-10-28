@@ -1023,6 +1023,9 @@ INSERT INTO random_uses
 SQL
 	}
 
+	if ($db_vers == 8) {
+		push @sql, q{ALTER TABLE processed RENAME TO processed_v8};
+	}
 
 	if ($db_vers < 8) {
 		push @sql, <<SQL;
@@ -1041,13 +1044,25 @@ CREATE TABLE speeches (
 )
 SQL
 		push @sql, <<SQL;
+CREATE TABLE processed_parts (
+  processed_no       INTEGER   NOT NULL REFERENCES processed,
+  proc_part_so       INTEGER   NOT NULL,
+  proc_part_file     TEXT      NOT NULL,
+
+  PRIMARY KEY(processed_no, proc_part_so)
+)
+SQL
+	}
+
+	if ($db_vers < 9 ) {
+		push @sql, <<SQL;
 CREATE TABLE processed (
   processed_no       INTEGER   NOT NULL PRIMARY KEY,
   enclosure_no       INTEGER   NOT NULL UNIQUE,
   playlist_no        INTEGER   NOT NULL,
   processed_profile  TEXT      NOT NULL,
   processed_duration REAL      NOT NULL,
-  processed_parallel INTEGER   NOT NULL DEFAULT 0,
+  processed_parallel INTEGER   NOT NULL,
   processed_pid      INTEGER   NULL,
   processed_cputime  REAL      NOT NULL,
   processed_store    TEXT      NOT NULL,
@@ -1060,21 +1075,20 @@ CREATE TABLE processed (
   )
 )
 SQL
-		push @sql, <<SQL;
-CREATE TABLE processed_parts (
-  processed_no       INTEGER   NOT NULL REFERENCES processed,
-  proc_part_so       INTEGER   NOT NULL,
-  proc_part_file     TEXT      NOT NULL,
-
-  PRIMARY KEY(processed_no, proc_part_so)
-)
-SQL
 	}
 
 	if ($db_vers == 8) {
-		push @sql,
-			q{ALTER TABLE processed ADD COLUMN processed_parallel INTEGER NOT NULL DEFAULT 0},
-			q{ALTER TABLE processed ADD COLUMN processed_pid INTEGER NULL};
+		push @sql, <<SQL;
+INSERT INTO processed(
+	processed_no, enclosure_no, playlist_no,
+	processed_profile, processed_duration, processed_parallel,
+	processed_pid, processed_cputime, processed_store
+) SELECT
+    processed_no, enclosure_no, playlist_no,
+    processed_profile, processed_duration, 0 AS processed_parallel,
+    NULL AS processed_pid, processed_cputime, processed_store
+  FROM processed_v8
+SQL
 	}
 
 
