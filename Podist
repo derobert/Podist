@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-our $PODIST_VERSION = 0.4;
+our $PODIST_VERSION = 0.5;
 our $CONFIG_VERSION = 2;
 
 use Config::General;
@@ -1871,9 +1871,9 @@ ERR
 	if (CONFIG->{configversion} == 1) {
 		FATAL(<<ERR);
 Your existing Podist configuration is for Podist 0.3 or before. Podist
-version 0.4 requires several changes to your existing config and
-possibly also requires moving files around. Please review the UPGRADING
-file for instructions.
+version 0.4 and higher require several changes to your existing config
+and possibly also requires moving files around. Please review the
+UPGRADING file for instructions.
 ERR
 		exit 1;
 	}

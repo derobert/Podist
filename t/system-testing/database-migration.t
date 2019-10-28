@@ -67,6 +67,13 @@ my @DB_VERSIONS = (    # map DB version to git commit
 		descr         => 'locations & processing',
 		kluge_confdir => 0,
 	},
+	{
+		db_vers       => 9,
+		commit        => '408ecb77327b5d43b067e11d00d81aa5060f0848',
+		descr         => 'parellel processing',
+		kluge_confdir => 0,
+	},
+
 );
 
 # This test is somewhat dangerous (e.g., bugs in old versions might
