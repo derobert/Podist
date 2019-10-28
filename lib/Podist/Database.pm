@@ -1091,10 +1091,11 @@ sub _build_dbh {
 	my $dbh = DBI->connect(
 		$self->dsn, $self->username, $self->password,
 		{
-			AutoCommit       => 0,
-			RaiseError       => 1,
-			PrintError       => 0,
-			FetchHashKeyName => 'NAME_lc',
+			AutoCommit          => 0,
+			RaiseError          => 1,
+			PrintError          => 0,
+			FetchHashKeyName    => 'NAME_lc',
+			AutoInactiveDestroy => 1,
 		});
 
 	# Migrations depend on foreign keys being off (to prevent renaming
