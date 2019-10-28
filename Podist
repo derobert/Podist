@@ -1637,18 +1637,24 @@ sub process {
 			my $in_path = $STORAGE->get_enclosure_path($info->{enclosure_no});
 			my $child = $pm->start_child(
 				sub {
+					local $_; # not a child if procs == 0
 					INFO(
 						qq{Processing enclosure $info->{enclosure_no} from Playlist $playlist_no#$info->{playlist_so} in pid $$}
 					);
+					$STORAGE->start_temp_group("Process $info->{enclosure_no}");
 					my $cpu_before = sum(times);
 					my $outfiles   = $processors{$profile}->process($in_path);
 					my $cpu_after  = sum(times);
 					my $cputime    = $cpu_after - $cpu_before;
+					$STORAGE->stop_tracking_temp($_) foreach @$outfiles;
+					$STORAGE->end_temp_group("Process $info->{enclosure_no}");
 					return {outfiles => $outfiles, cputime => $cputime};
 				});
 			$pm->run_on_finish(
 				sub {
 					my ($pid, $excode, undef, $exsig, $exdump, $data) = @_;
+					local $_;
+					$STORAGE->start_tracking_temp($_) foreach @{$data->{outfiles}};
 					$excode || $exsig
 						and
 						LOGDIE("Processing child blew up (code $excode, signal $exsig)");
