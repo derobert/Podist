@@ -1635,9 +1635,11 @@ sub process {
 				or LOGDIE(qq{Feed #$info->{feed_no} ($info->{feed_name}) has unknown profile "$info->{feed_proc_profile}"});
 
 			my $in_path = $STORAGE->get_enclosure_path($info->{enclosure_no});
+			my $parent_pid = $$;
 			my $child = $pm->start_child(
 				sub {
 					local $_; # not a child if procs == 0
+					srand unless $$ == $parent_pid;
 					INFO(
 						qq{Processing enclosure $info->{enclosure_no} from Playlist $playlist_no#$info->{playlist_so} in pid $$}
 					);
