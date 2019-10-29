@@ -30,7 +30,7 @@ use File::Temp qw(tempfile);
 use Getopt::Long;
 use IPC::Run3;
 use List::MoreUtils qw(pairwise);
-use List::Util qw(sum pairmap);
+use List::Util qw(sum sum0 pairmap);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
@@ -1665,11 +1665,16 @@ sub process {
 					$STORAGE->start_temp_group("Process $info->{enclosure_no}");
 					my $cpu_before = sum(times);
 					my $outfiles   = $processors{$profile}->process($in_path);
+					my $duration   = sum0(map(get_file_duration($_), @$outfiles));
 					my $cpu_after  = sum(times);
 					my $cputime    = $cpu_after - $cpu_before;
 					$STORAGE->stop_tracking_temp($_) foreach @$outfiles;
 					$STORAGE->end_temp_group("Process $info->{enclosure_no}");
-					return {outfiles => $outfiles, cputime => $cputime};
+					return {
+						outfiles => $outfiles,
+						duration => $duration,
+						cputime  => $cputime,
+					};
 				});
 			$pm->run_on_finish(
 				sub {
@@ -1680,12 +1685,12 @@ sub process {
 						and
 						LOGDIE("Processing child blew up (code $excode, signal $exsig)");
 
-					my $duration = $info->{enclosure_time};    # FIXME
+					my $orig_duration = $info->{enclosure_time};
 					my $proc_no  = $DB->add_processed(
 						enclosure_no => $info->{enclosure_no},
 						playlist_no  => $playlist_no,
 						profile      => $profile,
-						duration     => $duration,
+						duration     => $data->{duration},
 						cputime      => $data->{cputime},
 						pid          => $pid,
 						parallel     => CONFIG->{processing}{parallel},
@@ -1703,7 +1708,7 @@ sub process {
 						);
 					}
 					INFO(
-						"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $duration/$data->{cputime} : 'inf ' ]}x"
+						"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $orig_duration/$data->{cputime} : 'inf ' ]}x"
 					);
 				},
 				$child

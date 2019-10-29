@@ -158,7 +158,7 @@
         <note priority="verylow" time="1518244365">
             Should speech really go in processed? Its not actually processed from other audio, and e.g., a newer version of Festival could make it sound really different. Might want to archive it. Or feed it through (some) audio processing, I suppose.
         </note>
-        <note priority="low" time="1519721929">
+        <note priority="low" time="1519721929" done="1572281843">
             Multi-threaded to use all cores
         </note>
         <note priority="low" time="1519714321">
@@ -170,7 +170,7 @@
         <note priority="low" time="1433314857">
             Intro/ending trimming
         </note>
-        <note priority="medium" time="1519720079">
+        <note priority="medium" time="1519720079" done="1572304592">
             FIXME: once processing can change length, fix the length being passed to DB::add_processed in process()
         </note>
         <note priority="medium" time="1433315165">
