@@ -722,7 +722,8 @@ SQL
 	}
 
 	if ($db_vers > 0 && $db_vers < 8) {
-		push @sql, q{ALTER TABLE playlists RENAME TO playlists_v7};
+		push @sql, q{CREATE TABLE playlists_v7 AS SELECT * FROM playlists};
+		push @sql, q{DROP TABLE playlists};
 	}
 
 	if ($db_vers < 8) {
@@ -782,8 +783,8 @@ SQL
 	if ($db_vers == 1) {
 		# 1 → 2 upgrade, need to save old enclosures table because
 		# SQLite can't do ALTER TABLE well enough.
-		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v1};
-		push @sql, q{DROP INDEX enclosusures_enclosure_hash};
+		push @sql, q{CREATE TABLE enclosures_v1 AS SELECT * FROM enclosures};
+		push @sql, q{DROP TABLE enclosures};
 	}
 
 	if ($db_vers == 1 || $db_vers == 2) {
@@ -804,8 +805,8 @@ SQL
 		# grumble, can't add a constraint to an existing table... We
 		# only need to do this if between 2 and 7, because 1->2 already
 		# recreates enclosures.
-		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v7};
-		push @sql, q{DROP INDEX enclosusures_enclosure_hash};
+		push @sql, q{CREATE TABLE enclosures_v7 AS SELECT * FROM enclosures};
+		push @sql, q{DROP TABLE enclosures};
 	}
 
 	if ($db_vers < 8) {
@@ -834,8 +835,8 @@ SQL
 		# can't add columns in middle in SQLite, and adding to the end
 		# confuses tests (because sqldiff shows differences). Podist
 		# doesn't care, though.
-		push @sql, q{ALTER TABLE articles RENAME TO articles_v2};
-		push @sql, q{DROP INDEX articles_feed_title};
+		push @sql, q{CREATE TABLE articles_v2 AS SELECT * FROM articles};
+		push @sql, q{DROP TABLE articles};
 	}
 
 	if ($db_vers < 3) {
@@ -999,7 +1000,8 @@ SQL
 
 	# random_uses was created in v7, changed in v8
 	if ($db_vers == 7) {
-		push @sql, q{ALTER TABLE random_uses RENAME TO random_uses_v7};
+		push @sql, q{CREATE TABLE random_uses_v7 AS SELECT * FROM random_uses};
+		push @sql, q{DROP TABLE random_uses};
 	}
 	if ($db_vers < 8) {
 		push @sql, <<SQL;
@@ -1024,7 +1026,8 @@ SQL
 	}
 
 	if ($db_vers == 8) {
-		push @sql, q{ALTER TABLE processed RENAME TO processed_v8};
+		push @sql, q{CREATE TABLE processed_v8 AS SELECT * FROM processed};
+		push @sql, q{DROP TABLE processed};
 	}
 
 	if ($db_vers < 8) {
@@ -1115,7 +1118,7 @@ sub _build_dbh {
 	# Migrations depend on foreign keys being off (to prevent renaming
 	# tables from changing things around). That's the current SQLite
 	# default, but docs warn it may change.
-	$dbh->do(q{PRAGMA foreign_keys = false});
+	$dbh->do(q{PRAGMA foreign_keys = OFF});
 
 	local $dbh->{ShowErrorStatement} = 1; # useful if migration fails
 	my ($vers) = $dbh->selectrow_array('PRAGMA user_version');

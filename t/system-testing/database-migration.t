@@ -2,8 +2,11 @@ use Test::More;
 use Test::Exception;
 use IPC::Run3;
 use File::Slurper qw(read_text write_text);
-use Podist::Test::SystemTesting
-	qw(setup_config check_run plan_dangerously_or_exit basic_podist_setup);
+use File::Copy qw(copy);
+use File::Temp;
+use Podist::Test::SystemTesting qw(setup_config check_run
+	plan_dangerously_or_exit basic_podist_setup connect_to_podist_db
+);
 use 5.024;
 
 my @DB_VERSIONS = (    # map DB version to git commit
@@ -81,7 +84,34 @@ my @DB_VERSIONS = (    # map DB version to git commit
 # things to your actual Podist install). So we won't run unless
 # LIVE_DANGEROUSLY=1 is set. Note the GitLab CI sets this, as its run in
 # a docker container, so no existing Podist to worry about.
-plan_dangerously_or_exit tests => @DB_VERSIONS + 2;
+plan_dangerously_or_exit tests => @DB_VERSIONS + 3;
+
+sub dump_schema_ordered {
+	my ($db, $file, $exclude_filter) = @_;
+	$exclude_filter //= qr/(*FAIL)/;
+
+	my $query = <<QUERY;
+SELECT type, name, tbl_name, sql
+  FROM sqlite_master
+ ORDER BY tbl_name, name, type
+QUERY
+	my $dbh = connect_to_podist_db($db);
+
+	open(my $fh, '>', $file)
+		or die "open $file: $!";
+	my $sth = $dbh->prepare($query);
+	$sth->execute;
+	while (my $row = $sth->fetchrow_arrayref) {
+		next if $row->[2] =~ $exclude_filter;
+		(my $fmt = $row->[4])
+			=~ s/, /,\n/g;    # diff can't ignore missing newlines
+		printf $fh qq{-- %s %s (table %s):\n%5\$s\n-- end %2\$s\n\n}, @$row,
+			$fmt;
+	}
+	close $fh or die "close: $!";
+
+	return;
+}
 
 my $tmpdir = File::Temp::tempdir(CLEANUP => 1);
 my ($stdout, $stderr);
@@ -90,6 +120,7 @@ my $current_confdir = "$tmpdir/db-CURRENT-conf";
 my $current_workdir = "$tmpdir/db-CURRENT-work";
 my $current_conftmpl;
 my $current_db;
+my $current_db_sql = "$tmpdir/new-install.sql";
 
 {
 	# Current Podist, have coverage.
@@ -101,16 +132,19 @@ my $current_db;
 	);
 	$current_conftmpl = $current_setup->{conf_template};
 	$current_db = $current_setup->{db_file};
+	dump_schema_ordered($current_db, $current_db_sql);
 }
 
 foreach my $vinfo (@DB_VERSIONS) {
 	subtest "DB version $vinfo->{db_vers}, commit $vinfo->{commit}" => sub {
-		plan tests => 11;
+		plan tests => 13;
 		my $worktree = sprintf('%s/db-%02i-%s-work',
 			$tmpdir, $vinfo->{db_vers}, $vinfo->{commit});
 		my $confdir = sprintf('%s/db-%02i-%s-conf',
 			$tmpdir, $vinfo->{db_vers}, $vinfo->{commit});
 		my $storedir = sprintf('%s/db-%02i-%s-store',
+			$tmpdir, $vinfo->{db_vers}, $vinfo->{commit});
+		my $diffdir = sprintf('%s/db-%02i-%s-schema-diff',
 			$tmpdir, $vinfo->{db_vers}, $vinfo->{commit});
 
 		run3 [qw(git worktree add ), $worktree, $vinfo->{commit}], undef, \$stdout, \$stderr;
@@ -185,6 +219,17 @@ foreach my $vinfo (@DB_VERSIONS) {
 			run3 ['sqldiff', $current_db, "$confdir/podist.db"], undef, \$stdout, \$stderr;
 			diag("backwards diff:\n$stdout");
 		}
+
+		# The next huge section diffs the schema as text, because it
+		# turns out sqldiff ignores relevant changes (e.g., foreign key
+		# constraints referencing the wrong table!)
+		mkdir $diffdir;
+
+		dump_schema_ordered("$confdir/podist.db", "$diffdir/upgraded.sql",
+			qr/_v\d+$/);
+
+		run3 ['diff', '-dbU3', "$diffdir/upgraded.sql", "$current_db_sql"], \$stdout, \$stderr;
+		check_run('schema diff shows same', $stdout, $stderr);
 	};
 }
 
