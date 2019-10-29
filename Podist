@@ -1642,6 +1642,49 @@ sub process {
 
 	my $pm = Parallel::ForkManager->new(CONFIG->{processing}{parallel});
 
+	# it would definitely be nicer to set this up with a per-job closure
+	# per-child, but that's not possible — it races. Especially when
+	# using 0 children, which completes (of course) before we set it up
+	# the next line of code. So we need a single one for all children.
+	$pm->run_on_finish(
+		sub {
+			my ($pid, $excode, undef, $exsig, $exdump, $data) = @_;
+			local $_;
+			$STORAGE->start_tracking_temp($_) foreach @{$data->{outfiles}};
+			$excode || $exsig
+				and
+				LOGDIE("Processing child blew up (code $excode, signal $exsig)");
+
+			my $playlist_no = $data->{playlist_no};
+			my $info = $data->{enclosure_info};
+			my $orig_duration = $info->{enclosure_time};
+			my $proc_no  = $DB->add_processed(
+				enclosure_no => $info->{enclosure_no},
+				playlist_no  => $playlist_no,
+				profile      => $info->{feed_proc_profile},
+				duration     => $data->{duration},
+				cputime      => $data->{cputime},
+				pid          => $pid,
+				parallel     => CONFIG->{processing}{parallel},
+				store        => 'processed'
+			);
+			TRACE("Got files @{$data->{outfiles}}");
+			for (my $i = 0; $i < @{$data->{outfiles}}; ++$i) {
+				$STORAGE->save_processed_temp(
+					temp         => $data->{outfiles}[$i],
+					playlist_no  => $playlist_no,
+					playlist_so  => $info->{playlist_so},
+					processed_no => $proc_no,
+					proc_part_so => $i,
+					store        => 'processed',
+				);
+			}
+			INFO(
+				"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $orig_duration/$data->{cputime} : 'inf ' ]}x"
+			);
+		},
+	);
+
 	foreach my $playlist_no (@playlists) {
 		my $enclosures_info = $DB->get_processing_info($playlist_no);
 		foreach my $info (@$enclosures_info) {
@@ -1671,48 +1714,13 @@ sub process {
 					$STORAGE->stop_tracking_temp($_) foreach @$outfiles;
 					$STORAGE->end_temp_group("Process $info->{enclosure_no}");
 					return {
-						outfiles => $outfiles,
-						duration => $duration,
-						cputime  => $cputime,
+						playlist_no    => $playlist_no,
+						enclosure_info => $info,
+						outfiles       => $outfiles,
+						duration       => $duration,
+						cputime        => $cputime,
 					};
 				});
-			$pm->run_on_finish(
-				sub {
-					my ($pid, $excode, undef, $exsig, $exdump, $data) = @_;
-					local $_;
-					$STORAGE->start_tracking_temp($_) foreach @{$data->{outfiles}};
-					$excode || $exsig
-						and
-						LOGDIE("Processing child blew up (code $excode, signal $exsig)");
-
-					my $orig_duration = $info->{enclosure_time};
-					my $proc_no  = $DB->add_processed(
-						enclosure_no => $info->{enclosure_no},
-						playlist_no  => $playlist_no,
-						profile      => $profile,
-						duration     => $data->{duration},
-						cputime      => $data->{cputime},
-						pid          => $pid,
-						parallel     => CONFIG->{processing}{parallel},
-						store        => 'processed'
-					);
-					TRACE("Got files @{$data->{outfiles}}");
-					for (my $i = 0; $i < @{$data->{outfiles}}; ++$i) {
-						$STORAGE->save_processed_temp(
-							temp         => $data->{outfiles}[$i],
-							playlist_no  => $playlist_no,
-							playlist_so  => $info->{playlist_so},
-							processed_no => $proc_no,
-							proc_part_so => $i,
-							store        => 'processed',
-						);
-					}
-					INFO(
-						"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $orig_duration/$data->{cputime} : 'inf ' ]}x"
-					);
-				},
-				$child
-			);
 		}
 	}
 

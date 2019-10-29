@@ -20,7 +20,7 @@ use Podist::Test::Notes qw(long_note);
 # Podist install). So we won't run unless LIVE_DANGEROUSLY=1 is set.
 # Note the GitLab CI sets this, as its run in a docker container, so no
 # existing Podist to worry about.
-plan_dangerously_or_exit tests => 15;
+plan_dangerously_or_exit tests => 17;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -85,6 +85,13 @@ is($res1, 1, 'Used one pid w/o parallel proc');
 is($res2, 0, 'No null pids w/o parallel proc');
 
 # 11
+($res1) = $dbh->selectrow_array(
+	q{SELECT COUNT(*) FROM enclosures WHERE playlist_no = 1});
+($res2) = $dbh->selectrow_array(
+	q{SELECT COUNT(*) FROM processed WHERE playlist_no = 1});
+is($res2, $res1, 'All playlist entries processed (single-proc)');
+
+# 12
 $config->{processing}{parallel} = 2;
 lives_ok {
 	$Cfg->write_config(
@@ -93,19 +100,26 @@ lives_ok {
 		)
 } 'Wrote config enabling parallel=2';
 
-# 12
+# 13
 run3 [@$podist, 'playlist'], undef, \$stdout, \$stderr;
 check_run("Generated playlist with randoms", $stdout, $stderr);
 
-# 13
+# 14
 run3 [@$podist, 'process'], undef, \$stdout, \$stderr;
 check_run("Ran audio processing", $stdout, $stderr);
 run3 ['find', $store_dir, '-ls'], undef, \$stdout;
 note("Store directory listing after processing:\n$stdout");
 
-# 14 & 15
+# 15 & 16
 ($res1, $res2) = $dbh->selectrow_array($pids_query, {}, 2);
 ok($res1 > 1, 'Used multiple pids with parallel proc');
 is($res2, 0, 'No null pids with parallel proc');
+
+# 17
+($res1) = $dbh->selectrow_array(
+	q{SELECT COUNT(*) FROM enclosures WHERE playlist_no = 2});
+($res2) = $dbh->selectrow_array(
+	q{SELECT COUNT(*) FROM processed WHERE playlist_no = 2});
+is($res2, $res1, 'All playlist entries processed (parallel)');
 
 exit 0;
