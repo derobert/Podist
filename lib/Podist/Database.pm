@@ -668,7 +668,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 9;
+	my $current_vers = 10;
 
 	# Versions:
 	# 0 - no db yet
@@ -682,6 +682,7 @@ sub _get_migrations {
 	# 8 - more explicit storage location in db (enclosures & playlists),
 	#     support for processed versions
 	# 9 - store parallel processing info in db
+	# 10 - fix a foreign key constraint beyond what SQLite allows
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -722,7 +723,8 @@ SQL
 	}
 
 	if ($db_vers > 0 && $db_vers < 8) {
-		push @sql, q{ALTER TABLE playlists RENAME TO playlists_v7};
+		push @sql, q{CREATE TABLE playlists_v7 AS SELECT * FROM playlists};
+		push @sql, q{DROP TABLE playlists};
 	}
 
 	if ($db_vers < 8) {
@@ -782,8 +784,8 @@ SQL
 	if ($db_vers == 1) {
 		# 1 → 2 upgrade, need to save old enclosures table because
 		# SQLite can't do ALTER TABLE well enough.
-		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v1};
-		push @sql, q{DROP INDEX enclosusures_enclosure_hash};
+		push @sql, q{CREATE TABLE enclosures_v1 AS SELECT * FROM enclosures};
+		push @sql, q{DROP TABLE enclosures};
 	}
 
 	if ($db_vers == 1 || $db_vers == 2) {
@@ -804,8 +806,8 @@ SQL
 		# grumble, can't add a constraint to an existing table... We
 		# only need to do this if between 2 and 7, because 1->2 already
 		# recreates enclosures.
-		push @sql, q{ALTER TABLE enclosures RENAME TO enclosures_v7};
-		push @sql, q{DROP INDEX enclosusures_enclosure_hash};
+		push @sql, q{CREATE TABLE enclosures_v7 AS SELECT * FROM enclosures};
+		push @sql, q{DROP TABLE enclosures};
 	}
 
 	if ($db_vers < 8) {
@@ -834,8 +836,8 @@ SQL
 		# can't add columns in middle in SQLite, and adding to the end
 		# confuses tests (because sqldiff shows differences). Podist
 		# doesn't care, though.
-		push @sql, q{ALTER TABLE articles RENAME TO articles_v2};
-		push @sql, q{DROP INDEX articles_feed_title};
+		push @sql, q{CREATE TABLE articles_v2 AS SELECT * FROM articles};
+		push @sql, q{DROP TABLE articles};
 	}
 
 	if ($db_vers < 3) {
@@ -999,7 +1001,8 @@ SQL
 
 	# random_uses was created in v7, changed in v8
 	if ($db_vers == 7) {
-		push @sql, q{ALTER TABLE random_uses RENAME TO random_uses_v7};
+		push @sql, q{CREATE TABLE random_uses_v7 AS SELECT * FROM random_uses};
+		push @sql, q{DROP TABLE random_uses};
 	}
 	if ($db_vers < 8) {
 		push @sql, <<SQL;
@@ -1024,7 +1027,12 @@ SQL
 	}
 
 	if ($db_vers == 8) {
-		push @sql, q{ALTER TABLE processed RENAME TO processed_v8};
+		push @sql, q{CREATE TABLE processed_v8 AS SELECT * FROM processed};
+		push @sql, q{DROP TABLE processed};
+	}
+	if ($db_vers == 9) {
+		push @sql, q{CREATE TABLE processed_v9 AS SELECT * FROM processed};
+		push @sql, q{DROP TABLE processed};
 	}
 
 	if ($db_vers < 8) {
@@ -1054,12 +1062,12 @@ CREATE TABLE processed_parts (
 SQL
 	}
 
-	if ($db_vers < 9 ) {
+	if ($db_vers < 10 ) {
 		push @sql, <<SQL;
 CREATE TABLE processed (
   processed_no       INTEGER   NOT NULL PRIMARY KEY,
-  enclosure_no       INTEGER   NOT NULL UNIQUE,
-  playlist_no        INTEGER   NOT NULL,
+  enclosure_no       INTEGER   NOT NULL UNIQUE REFERENCES enclosures,
+  playlist_no        INTEGER   NOT NULL REFERENCES playlists,
   processed_profile  TEXT      NOT NULL,
   processed_duration REAL      NOT NULL,
   processed_parallel INTEGER   NOT NULL,
@@ -1067,9 +1075,6 @@ CREATE TABLE processed (
   processed_cputime  REAL      NOT NULL,
   processed_store    TEXT      NOT NULL,
   
-  CONSTRAINT process_playlisted_enclosures
-    FOREIGN KEY(enclosure_no, playlist_no)
-    REFERENCES enclosures(enclosure_no, playlist_no),
   CONSTRAINT processed_valid_store CHECK (
     processed_store IN ('processed', 'archived-processed', 'deleted')
   )
@@ -1091,9 +1096,15 @@ INSERT INTO processed(
 SQL
 	}
 
+	if ($db_vers == 9) {
+		push @sql, <<SQL;
+INSERT INTO processed SELECT * FROM processed_v9
+SQL
+	}
+
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 9};
+	push @sql, q{PRAGMA user_version = 10};
 
 	return \@sql;
 }
@@ -1115,13 +1126,14 @@ sub _build_dbh {
 	# Migrations depend on foreign keys being off (to prevent renaming
 	# tables from changing things around). That's the current SQLite
 	# default, but docs warn it may change.
-	$dbh->do(q{PRAGMA foreign_keys = false});
+	$dbh->do(q{PRAGMA foreign_keys = OFF});
 
 	local $dbh->{ShowErrorStatement} = 1; # useful if migration fails
 	my ($vers) = $dbh->selectrow_array('PRAGMA user_version');
 	foreach my $migration (@{$self->_get_migrations($vers)}) {
 		$dbh->do($migration);
 	}
+	$dbh->do('PRAGMA foreign_key_check'); # TODO: report row failures
 	
 	# Migrations done; turn them on.
 	$dbh->do('PRAGMA foreign_keys = ON');
