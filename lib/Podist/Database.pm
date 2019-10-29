@@ -668,7 +668,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 9;
+	my $current_vers = 10;
 
 	# Versions:
 	# 0 - no db yet
@@ -682,6 +682,7 @@ sub _get_migrations {
 	# 8 - more explicit storage location in db (enclosures & playlists),
 	#     support for processed versions
 	# 9 - store parallel processing info in db
+	# 10 - fix a foreign key constraint beyond what SQLite allows
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -1029,6 +1030,10 @@ SQL
 		push @sql, q{CREATE TABLE processed_v8 AS SELECT * FROM processed};
 		push @sql, q{DROP TABLE processed};
 	}
+	if ($db_vers == 9) {
+		push @sql, q{CREATE TABLE processed_v9 AS SELECT * FROM processed};
+		push @sql, q{DROP TABLE processed};
+	}
 
 	if ($db_vers < 8) {
 		push @sql, <<SQL;
@@ -1057,12 +1062,12 @@ CREATE TABLE processed_parts (
 SQL
 	}
 
-	if ($db_vers < 9 ) {
+	if ($db_vers < 10 ) {
 		push @sql, <<SQL;
 CREATE TABLE processed (
   processed_no       INTEGER   NOT NULL PRIMARY KEY,
-  enclosure_no       INTEGER   NOT NULL UNIQUE,
-  playlist_no        INTEGER   NOT NULL,
+  enclosure_no       INTEGER   NOT NULL UNIQUE REFERENCES enclosures,
+  playlist_no        INTEGER   NOT NULL REFERENCES playlists,
   processed_profile  TEXT      NOT NULL,
   processed_duration REAL      NOT NULL,
   processed_parallel INTEGER   NOT NULL,
@@ -1070,9 +1075,6 @@ CREATE TABLE processed (
   processed_cputime  REAL      NOT NULL,
   processed_store    TEXT      NOT NULL,
   
-  CONSTRAINT process_playlisted_enclosures
-    FOREIGN KEY(enclosure_no, playlist_no)
-    REFERENCES enclosures(enclosure_no, playlist_no),
   CONSTRAINT processed_valid_store CHECK (
     processed_store IN ('processed', 'archived-processed', 'deleted')
   )
@@ -1094,9 +1096,15 @@ INSERT INTO processed(
 SQL
 	}
 
+	if ($db_vers == 9) {
+		push @sql, <<SQL;
+INSERT INTO processed SELECT * FROM processed_v9
+SQL
+	}
+
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 9};
+	push @sql, q{PRAGMA user_version = 10};
 
 	return \@sql;
 }
@@ -1125,6 +1133,7 @@ sub _build_dbh {
 	foreach my $migration (@{$self->_get_migrations($vers)}) {
 		$dbh->do($migration);
 	}
+	$dbh->do('PRAGMA foreign_key_check'); # TODO: report row failures
 	
 	# Migrations done; turn them on.
 	$dbh->do('PRAGMA foreign_keys = ON');
