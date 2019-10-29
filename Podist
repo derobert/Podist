@@ -1077,37 +1077,56 @@ QUERY
 
 	while (my ($enc_no) = $sth->fetchrow_array) {
 		my $file = $STORAGE->get_enclosure_path($enc_no);
-		my $len;
+		my $len = get_file_duration($file);
 
-		unless ($file =~ /\.(.{3})$/) {
-			ERROR("Could not find suffix in $file");
-			ERROR("This shouldn't happen, as we always set a suffix. WTF.");
-			next;
-		}
-		if ($1 eq 'mp3') {
-			my $inf = get_mp3info($file);
-			if ($inf) {
-				$len = $inf->{SECS};
-			} else {
-				WARN("Could not get length of $file");
-			}
-		} elsif ($1 eq 'ogg') {
-			my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
-			if ($ogg) {
-				$len = $ogg->info('length');
-			} else {
-				WARN("Ogg parser doesn't think $file is ogg");
-			}
-		}
-		else {
-			ERROR("Don't know how to get length of $1 files");
-		}
+		defined $len or next;
 
-		defined $len && 0 == $len
+		0 == $len
 			and WARN("Got length of 0 for $file; probably wrong!");
 
-		DEBUG("$file: " . (defined $len ? $len : 'undef'));
+		DEBUG("$file: $len");
 		$upd->execute($len, $enc_no);
+	}
+}
+
+sub get_file_duration {
+	my $file = shift;
+
+	unless ($file =~ /\.(.{3})$/) {
+		ERROR("Could not find suffix in $file");
+		ERROR("This shouldn't happen, as we always set a suffix. WTF.");
+		next;
+	}
+	if ($1 eq 'mp3') {
+		my $inf = get_mp3info($file);
+		if ($inf) {
+			return $inf->{SECS};
+		} else {
+			WARN("Could not get length of $file");
+			return;
+		}
+	} elsif ($1 eq 'ogg') {
+		my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
+		if ($ogg) {
+			return $ogg->info('length');
+		} else {
+			WARN("Ogg parser doesn't think $file is ogg");
+			return;
+		}
+	} else { # ffprobe does basically everything
+		my $stdout;
+		run3([
+				qw(ffprobe -of default=nk=1:nw=1 -loglevel error -hide_banner
+					-show_entries format=duration),
+				$file
+			],
+			\undef, \$stdout, undef
+		);
+		if (0 != $?) {
+			WARN("ffprobe of $file failed: $?");
+			return;
+		}
+		return 0 + $stdout;
 	}
 }
 
