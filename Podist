@@ -2273,6 +2273,13 @@ ignored. So C<1w> means 604,800 seconds.
 
 Default: 3 episodes per week.
 
+=item B<--proc-profile> I<PROFILE>
+
+Set processing profile for playlist items from this feed. The profiles
+control the various processing options (currently things like the target
+volume level, if any range limiting is applied, and if the audio is
+stretched/sped up) and are defined in the config file.
+
 =back
 
 =head2 editrandom
