@@ -30,7 +30,7 @@ use File::Temp qw(tempfile);
 use Getopt::Long;
 use IPC::Run3;
 use List::MoreUtils qw(pairwise);
-use List::Util qw(sum pairmap);
+use List::Util qw(sum sum0 pairmap);
 use Log::Log4perl qw(:easy :no_extra_logdie_message);
 use LWP::UserAgent;
 use MP3::Info qw(get_mp3info);
@@ -1077,37 +1077,56 @@ QUERY
 
 	while (my ($enc_no) = $sth->fetchrow_array) {
 		my $file = $STORAGE->get_enclosure_path($enc_no);
-		my $len;
+		my $len = get_file_duration($file);
 
-		unless ($file =~ /\.(.{3})$/) {
-			ERROR("Could not find suffix in $file");
-			ERROR("This shouldn't happen, as we always set a suffix. WTF.");
-			next;
-		}
-		if ($1 eq 'mp3') {
-			my $inf = get_mp3info($file);
-			if ($inf) {
-				$len = $inf->{SECS};
-			} else {
-				WARN("Could not get length of $file");
-			}
-		} elsif ($1 eq 'ogg') {
-			my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
-			if ($ogg) {
-				$len = $ogg->info('length');
-			} else {
-				WARN("Ogg parser doesn't think $file is ogg");
-			}
-		}
-		else {
-			ERROR("Don't know how to get length of $1 files");
-		}
+		defined $len or next;
 
-		defined $len && 0 == $len
+		0 == $len
 			and WARN("Got length of 0 for $file; probably wrong!");
 
-		DEBUG("$file: " . (defined $len ? $len : 'undef'));
+		DEBUG("$file: $len");
 		$upd->execute($len, $enc_no);
+	}
+}
+
+sub get_file_duration {
+	my $file = shift;
+
+	unless ($file =~ /\.(.{3})$/) {
+		ERROR("Could not find suffix in $file");
+		ERROR("This shouldn't happen, as we always set a suffix. WTF.");
+		next;
+	}
+	if ($1 eq 'mp3') {
+		my $inf = get_mp3info($file);
+		if ($inf) {
+			return $inf->{SECS};
+		} else {
+			WARN("Could not get length of $file");
+			return;
+		}
+	} elsif ($1 eq 'ogg') {
+		my $ogg = Ogg::Vorbis::Header::PurePerl->new($file);
+		if ($ogg) {
+			return $ogg->info('length');
+		} else {
+			WARN("Ogg parser doesn't think $file is ogg");
+			return;
+		}
+	} else { # ffprobe does basically everything
+		my $stdout;
+		run3([
+				qw(ffprobe -of default=nk=1:nw=1 -loglevel error -hide_banner
+					-show_entries format=duration),
+				$file
+			],
+			\undef, \$stdout, undef
+		);
+		if (0 != $?) {
+			WARN("ffprobe of $file failed: $?");
+			return;
+		}
+		return 0 + $stdout;
 	}
 }
 
@@ -1646,11 +1665,16 @@ sub process {
 					$STORAGE->start_temp_group("Process $info->{enclosure_no}");
 					my $cpu_before = sum(times);
 					my $outfiles   = $processors{$profile}->process($in_path);
+					my $duration   = sum0(map(get_file_duration($_), @$outfiles));
 					my $cpu_after  = sum(times);
 					my $cputime    = $cpu_after - $cpu_before;
 					$STORAGE->stop_tracking_temp($_) foreach @$outfiles;
 					$STORAGE->end_temp_group("Process $info->{enclosure_no}");
-					return {outfiles => $outfiles, cputime => $cputime};
+					return {
+						outfiles => $outfiles,
+						duration => $duration,
+						cputime  => $cputime,
+					};
 				});
 			$pm->run_on_finish(
 				sub {
@@ -1661,12 +1685,12 @@ sub process {
 						and
 						LOGDIE("Processing child blew up (code $excode, signal $exsig)");
 
-					my $duration = $info->{enclosure_time};    # FIXME
+					my $orig_duration = $info->{enclosure_time};
 					my $proc_no  = $DB->add_processed(
 						enclosure_no => $info->{enclosure_no},
 						playlist_no  => $playlist_no,
 						profile      => $profile,
-						duration     => $duration,
+						duration     => $data->{duration},
 						cputime      => $data->{cputime},
 						pid          => $pid,
 						parallel     => CONFIG->{processing}{parallel},
@@ -1684,7 +1708,7 @@ sub process {
 						);
 					}
 					INFO(
-						"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $duration/$data->{cputime} : 'inf ' ]}x"
+						"Finished $info->{enclosure_no} in $data->{cputime}s, @{[ $data->{cputime} ? $orig_duration/$data->{cputime} : 'inf ' ]}x"
 					);
 				},
 				$child
