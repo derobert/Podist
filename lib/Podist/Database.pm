@@ -1111,6 +1111,7 @@ SQL
 
 sub _build_dbh {
 	my ($self) = @_;
+	local $_;
 
 	TRACE("Connecting to the database.");
 	my $dbh = DBI->connect(
@@ -1123,20 +1124,32 @@ sub _build_dbh {
 			AutoInactiveDestroy => 1,
 		});
 
-	# Migrations depend on foreign keys being off (to prevent renaming
-	# tables from changing things around). That's the current SQLite
-	# default, but docs warn it may change.
-	$dbh->do(q{PRAGMA foreign_keys = OFF});
 
 	local $dbh->{ShowErrorStatement} = 1; # useful if migration fails
 	my ($vers) = $dbh->selectrow_array('PRAGMA user_version');
-	foreach my $migration (@{$self->_get_migrations($vers)}) {
-		$dbh->do($migration);
+	my $migrations = $self->_get_migrations($vers);
+	if (@$migrations) {
+		$dbh->do(q{PRAGMA foreign_keys = OFF}); # default, but may change
+		$dbh->do($_) foreach @$migrations;
+		my $sth = $dbh->prepare('PRAGMA foreign_key_check');
+		while (my $row = $sth->fetchrow_hashref) {
+			ERROR("Database corruption detected: foreign key failure table $row->{table}, rowid $row->{rowid}, parent $row->{parent}, fkid $row->{fkid}");
+		}
+		$dbh->commit;
 	}
-	$dbh->do('PRAGMA foreign_key_check'); # TODO: report row failures
 	
-	# Migrations done; turn them on.
-	$dbh->do('PRAGMA foreign_keys = ON');
+	# Migrations done; turn them on. This is ignored (without error or
+	# even warning, yeah, really, WTF) unless we're in autocommit
+	# mode...
+	{
+		local $dbh->{AutoCommit} = 1;
+		$dbh->do('PRAGMA foreign_keys = ON');
+	}
+
+	# Since it's tripped us up in the past, confirm we've enabled
+	# foreign keys.
+	my ($status) = $dbh->selectrow_array('PRAGMA foreign_keys');
+	$status or LOGDIE("BUG: Failed to enable SQLite foreign keys");
 
 	return $dbh;
 }
