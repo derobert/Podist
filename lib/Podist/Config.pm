@@ -320,6 +320,8 @@ DataDir $confdir # e.g., \$HOME/.podist
 		# If you want all your podcasts to be sped up (time stretching),
 		# uncomment this:
 		# Tempo          1.3x
+		# Optionally, override default rubberband filter options
+		# RubberbandOptions :pitchq=quality:window=short
     </profile>
     <profile compress>
         BasedOn        default

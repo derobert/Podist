@@ -51,6 +51,14 @@ has _tempo => (
 	coerce   => 1,
 );
 
+has _rb_opts => (
+	init_arg => 'rubberbandoptions',
+	required => 1,
+	is       => 'ro',
+	isa      => 'Str',
+	default  => ':pitchq=quality:window=short',
+);
+
 has _encoder => (
 	init_arg => 'encoder',
 	required => 1,
@@ -283,7 +291,7 @@ sub _get_filter {
 
 	if (abs($self->_tempo - 1) > 0.0001) {
 		$res .= 'rubberband=tempo=' . $self->_tempo;
-		$res .= ':pitchq=quality';
+		$res .= $self->_rb_opts;
 		$res .= ',';
 	}
 
