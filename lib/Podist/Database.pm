@@ -440,6 +440,33 @@ sub update_processed_storage {
 	return;
 }
 
+sub delete_processed_parts {
+	# remember to use Storage::delete_processed too
+	my ($self, $proc_no) = @_;
+
+	TRACE("Deleting processed parts for processing = $proc_no");
+	my $sth = $self->prepare_cached(q{
+		DELETE FROM processed_parts
+		  WHERE processed_no = ?
+	});
+	$sth->execute($proc_no);
+
+	return;
+}
+
+sub delete_processed {
+	my ($self, $e_no) = @_;
+
+	TRACE("Deleting processed e_no = $e_no");
+	my $sth = $self->prepare_cached(q{
+		DELETE FROM processed
+		  WHERE enclosure_no = ?
+	});
+	$sth->execute($e_no);
+
+	return;
+}
+
 sub find_or_add_random {
 	my ($self, $file) = @_;
 
