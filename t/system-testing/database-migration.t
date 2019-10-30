@@ -76,6 +76,12 @@ my @DB_VERSIONS = (    # map DB version to git commit
 		descr         => 'parellel processing',
 		kluge_confdir => 0,
 	},
+	{
+		db_vers       => 10,
+		commit        => 'fa5dcd04bc67a70661f128edde91b1202bea69ae',
+		descr         => 'fix constraint',
+		kluge_confdir => 0,
+	}
 
 );
 
