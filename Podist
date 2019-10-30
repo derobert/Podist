@@ -57,8 +57,7 @@ use Podist::Misc qw(inherit_proc_profiles normalize_time);
 use Podist::Processor;
 use Podist::Storage;
 
-use feature 'state';
-use feature 'say';
+use 5.014; # adds r flag to s///
 use strict;
 
 my ($DB, $STORAGE);    # set by setup
@@ -1622,6 +1621,7 @@ sub archive {
 }
 
 sub process {
+	local $_;
 	my $go = Getopt::Long::Parser->new(
 		config => [qw( gnu_compat require_order )]);
 
@@ -1630,9 +1630,14 @@ sub process {
 		'redo|r' => \$redo,
 	) or pod2usage(2);
 
-	$redo and LOGDIE("Sorry, Podist process --redo not implemented yet");
-	#TODO: handle 'Playlist 123', not just '123'. Like archive.
-	my @playlists = @ARGV ? @ARGV : @{$DB->get_playlist_list(1)};
+	my @playlists;
+	if (@ARGV) {
+		@playlists = map s/^playlist\s*//ir, @ARGV;
+	} else {
+		LOGDIE("process --redo requires playlist numbers as arguments")
+			if $redo;
+		@playlists = @{$DB->get_playlist_list(1)};
+	}
 
 	my $tmp_maker = sub { $STORAGE->new_processed_temp(shift) };
 	my %processors;
@@ -1655,10 +1660,11 @@ sub process {
 				and
 				LOGDIE("Processing child blew up (code $excode, signal $exsig)");
 
-			my $playlist_no = $data->{playlist_no};
-			my $info = $data->{enclosure_info};
+			my $playlist_no   = $data->{playlist_no};
+			my $info          = $data->{enclosure_info};
 			my $orig_duration = $info->{enclosure_time};
-			my $proc_no  = $DB->add_processed(
+
+			my $proc_no = $DB->add_processed(
 				enclosure_no => $info->{enclosure_no},
 				playlist_no  => $playlist_no,
 				profile      => $info->{feed_proc_profile},
@@ -1669,6 +1675,7 @@ sub process {
 				store        => 'processed'
 			);
 			TRACE("Got files @{$data->{outfiles}}");
+
 			for (my $i = 0; $i < @{$data->{outfiles}}; ++$i) {
 				$STORAGE->save_processed_temp(
 					temp         => $data->{outfiles}[$i],
@@ -1689,8 +1696,14 @@ sub process {
 		my $enclosures_info = $DB->get_processing_info($playlist_no);
 		foreach my $info (@$enclosures_info) {
 			if ($info->{processed_no}) {
-				TRACE("Skipping already-processed $info->{enclosure_no}");
-				next;
+				if ($redo) {
+					$STORAGE->delete_processed($info->{enclosure_no});
+					$DB->delete_processed_parts($info->{processed_no});
+					$DB->delete_processed($info->{enclosure_no});
+				} else {
+					TRACE("Skipping already-processed $info->{enclosure_no}");
+					next;
+				}
 			}
 			my $profile = $info->{feed_proc_profile};
 			exists $processors{$profile}
@@ -1713,6 +1726,7 @@ sub process {
 					my $cputime    = $cpu_after - $cpu_before;
 					$STORAGE->stop_tracking_temp($_) foreach @$outfiles;
 					$STORAGE->end_temp_group("Process $info->{enclosure_no}");
+					TRACE("Child pid=$$ returning");
 					return {
 						playlist_no    => $playlist_no,
 						enclosure_info => $info,
