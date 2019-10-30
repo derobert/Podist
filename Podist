@@ -1660,10 +1660,11 @@ sub process {
 				and
 				LOGDIE("Processing child blew up (code $excode, signal $exsig)");
 
-			my $playlist_no = $data->{playlist_no};
-			my $info = $data->{enclosure_info};
+			my $playlist_no   = $data->{playlist_no};
+			my $info          = $data->{enclosure_info};
 			my $orig_duration = $info->{enclosure_time};
-			my $proc_no  = $DB->add_processed(
+
+			my $proc_no = $DB->add_processed(
 				enclosure_no => $info->{enclosure_no},
 				playlist_no  => $playlist_no,
 				profile      => $info->{feed_proc_profile},
@@ -1674,6 +1675,7 @@ sub process {
 				store        => 'processed'
 			);
 			TRACE("Got files @{$data->{outfiles}}");
+
 			for (my $i = 0; $i < @{$data->{outfiles}}; ++$i) {
 				$STORAGE->save_processed_temp(
 					temp         => $data->{outfiles}[$i],
