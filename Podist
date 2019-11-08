@@ -2060,8 +2060,8 @@ versions of RSS).
 
 =head2 B<catch>
 
-Run the podcatcher. The same as fetch, download, and stopwatch (in that
-order) below.
+Run the podcatcher. The same as fetch, download, and stopwatch, hash,
+originalize (in that order) below.
 
 =head2 drop
 
