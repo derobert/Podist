@@ -577,9 +577,9 @@ QUERY
 		if (exists $SUFFIX_MAP{$ctype}) {
 			$suffix = $SUFFIX_MAP{$ctype};
 		} elsif ($name =~ /\.(mp3|ogg)$/) {
-			if ('text/plain' eq $ctype) {
+			if ('text/plain' eq $ctype||'application/octet-stream' eq $ctype) {
 				$suffix = $1;
-				WARN("Server broken; $enc_url gave us text/plain for $suffix");
+				WARN("Server broken; $enc_url gave us $ctype for $suffix");
 			} elsif (-1 == index($ctype, '/')) {
 				# seems podcastdownload.npr.org often gives a date(!) in
 				# the content-type header. WTF. Confirmed with
