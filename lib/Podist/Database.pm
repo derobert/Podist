@@ -695,7 +695,7 @@ SQL
 
 sub _get_migrations {
 	my ($self, $db_vers) = @_;
-	my $current_vers = 10;
+	my $current_vers = 11;
 
 	# Versions:
 	# 0 - no db yet
@@ -710,6 +710,7 @@ sub _get_migrations {
 	#     support for processed versions
 	# 9 - store parallel processing info in db
 	# 10 - fix a foreign key constraint beyond what SQLite allows
+	# 11 - add field to pause podcast playback
 
 	$db_vers =~ /^[0-9]+$/ or confess "Silly DB version: $db_vers";
 	$db_vers <= $current_vers
@@ -820,13 +821,20 @@ SQL
 			q{ALTER TABLE feeds ADD feed_limit_amount INTEGER NOT NULL DEFAULT 3},
 			q{ALTER TABLE feeds ADD feed_limit_period INTEGER NOT NULL DEFAULT 604800};
 
-		push @sql, q{DROP VIEW valids};
 		push @sql, q{DROP VIEW oldest_unplayed};
+	}
+
+	if ($db_vers > 0 && $db_vers < 11) {
+		push @sql, q{DROP VIEW valids};
 	}
 
 	if ($db_vers < 8) {
 		push @sql,
 			q{ALTER TABLE feeds ADD feed_proc_profile TEXT NOT NULL DEFAULT 'default'};
+	}
+	if ($db_vers < 11) {
+		push @sql,
+			q{ALTER TABLE feeds ADD feed_paused INTEGER NOT NULL DEFAULT 0 CONSTRAINT paused_is_bool CHECK (feed_paused IN (0,1))};
 	}
 
 	if ($db_vers > 1 && $db_vers < 8) {
@@ -970,6 +978,8 @@ CREATE VIEW oldest_unplayed AS
       AND a.article_use = 1
     GROUP BY a.feed_no
 SQL
+	}
+	if ($db_vers < 11) {
 		push @sql, <<SQL;
 CREATE VIEW valids AS
   SELECT
@@ -990,6 +1000,7 @@ CREATE VIEW valids AS
     JOIN enclosures e ON (ae.enclosure_no = e.enclosure_no)
   WHERE
     (NOT f.feed_ordered OR a.article_when = ou.oldest)
+    AND f.feed_paused = 0
     AND e.enclosure_file IS NOT NULL
     AND e.enclosure_time IS NOT NULL
     AND e.playlist_no IS NULL
@@ -1131,7 +1142,7 @@ SQL
 
 
 	# finally, set version
-	push @sql, q{PRAGMA user_version = 10};
+	push @sql, qq{PRAGMA user_version = $current_vers};
 
 	return \@sql;
 }

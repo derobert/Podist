@@ -81,7 +81,13 @@ my @DB_VERSIONS = (    # map DB version to git commit
 		commit        => 'fa5dcd04bc67a70661f128edde91b1202bea69ae',
 		descr         => 'fix constraint',
 		kluge_confdir => 0,
-	}
+	},
+	{
+		db_vers       => 11,
+		commit        => '9e10c2e6a94e388e3d928e5a6b68901eaeac153a',
+		descr         => 'feed_paused',
+		kluge_confdir => 0,
+	},
 
 );
 

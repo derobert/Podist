@@ -232,7 +232,9 @@ sub edit_podcast {
 	$go->getoptions(
 		\%opts, qw/
 			feed_no|feed-no|f=i          url=s
-			name=s enable                disable
+			name=s                       
+			pause!                       play!
+			enable                       disable
 			ordered!                     all_audio|all-audio!
 			is_music|is-music!           limit_amount|limit-amount=i
 			limit_period|limit-period=s  proc_profile|proc-profile=s
@@ -245,6 +247,13 @@ sub edit_podcast {
 
 	exists $opts{enable} and exists $opts{disable}
 		and $p2u->("Can't both enable and disable a feed.");
+
+	my $pause = delete $opts{pause};
+	my $play = delete $opts{play};
+	defined $pause && defined $play
+		and $p2u->("Pick either pause or play, not both");
+	$opts{paused} = $pause ? 1 : 0 if defined $pause;
+	$opts{paused} = $play  ? 0 : 1 if defined $play;
 
 	$opts{enabled} = 1 if delete $opts{enable};
 	$opts{enabled} = 0 if delete $opts{disable};
@@ -2243,12 +2252,18 @@ Disable or enable the feed. A disabled feed is not fetched, but already
 fetched episodes remain (and will still be used in future playlists).
 Obviously an error to specify both of these options (but neither is
 fine, which, like all the rest of the options, leaves it in its current
-state).
+state). Compare to C<--pause>.
 
 Note that you can force Podist to fetch a disabled feed by using
 C<Podist fetch> or C<Podist catch>'s C<-f> option.
 
 Default: enabled.
+
+=item B<--pause>/B<--no-play> | B<--play>/B<--no-pause>
+
+Pause or unpause (play) the feed. A paused feed still downloads
+episodes, but they will not be added to any playlists generated. Compare
+to C<--disable>.
 
 =item B<--ordered> | B<--no-ordered>
 
