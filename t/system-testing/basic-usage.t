@@ -215,8 +215,8 @@ subtest 'Podist list -f OK' => sub {
 	foreach (split("\n", $stdout)) {
 		/^Feeds$/            and next;    # header
 		/^$/                 and next;    # header or footer (line);
-		/^Enabled Feed Name/ and next;    # header;
-		if (/^Yes Feed ([0-8]) \1 default$/) {
+		/^Enabled Paused Feed Name/ and next;    # header;
+		if (/^Yes No Feed ([0-8]) \1 default$/) {
 			pass("Found Feed $1");
 		} else {
 			fail("Unexpected line: $_");

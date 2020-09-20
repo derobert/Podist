@@ -632,7 +632,7 @@ sub status {
 	$tab->addRow(@$_[1..7]) foreach @{$DB->selectall_arrayref(<<QUERY)};
 SELECT
 	feed_enabled,
-    feed_name,
+    f.feed_name || CASE WHEN f.feed_paused = 1 THEN ' (PAUSED)' ELSE '' END,
     COUNT(e.enclosure_no),
     ROUND(SUM(e.enclosure_time)/3600),
     SUM(CASE WHEN e.enclosure_file IS NULL THEN 0 ELSE 100 END)/COUNT(*),
@@ -665,7 +665,11 @@ QUERY
 	my $summaries = $DB->selectall_arrayref(<<QUERY);
 SELECT
     CASE WHEN ue.playlist_no IS NULL THEN
-      'Pending'
+      CASE WHEN f.feed_paused = 1 THEN
+        'Paused'
+      ELSE
+        'Pending'
+      END
     ELSE
       CASE WHEN p.playlist_archived IS NULL THEN
         'Playlisted'
@@ -679,13 +683,16 @@ SELECT
   FROM
     usable_enclosures ue
     LEFT JOIN playlists p ON (ue.playlist_no = p.playlist_no )
+    LEFT JOIN articles a ON (ue.min_article_no = a.article_no )
+    LEFT JOIN feeds f ON (a.feed_no = f.feed_no )
   GROUP BY status
   ORDER BY
     CASE status
       WHEN 'Playlisted' THEN 1
       WHEN 'Pending' THEN 2
-      WHEN 'Archived' THEN 3
-      ELSE 4
+      WHEN 'Paused' THEN 3
+      WHEN 'Archived' THEN 4
+      ELSE 5
     END ASC
 QUERY
 	my @total = ('TOTAL');
@@ -845,9 +852,10 @@ sub list {
 	keys %opts or pod2usage("Need to specify something to list.");
 
 	if ($opts{feeds}) {
-		my @header = ('Enabled', 'Feed Name', 'Feed #', 'Proc.');
+		my @header = ('Enabled', 'Paused', 'Feed Name', 'Feed #', 'Proc.');
 		my @cols = (
 			q{CASE WHEN feed_enabled THEN 'Yes' ELSE 'No' END},
+			q{CASE WHEN feed_paused THEN 'Yes' ELSE 'No' END},
 			q{feed_name},
 			q{feed_no},
 			q{feed_proc_profile},
