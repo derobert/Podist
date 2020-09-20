@@ -8,6 +8,7 @@ use IPC::Run3 qw(run3);
 use Test::Exception;
 use Test::More;
 use XML::FeedPP;
+use version 0.77;
 
 use Podist::Config;
 use Podist::Test::SystemTesting qw(
@@ -201,8 +202,18 @@ subtest 'Four feed options on' => sub {
 	my $last = undef;
 	foreach my $item ($feed->get_item()) {
 		++$i;
-		ok(defined $item->get_pubDate_epoch, "[$i] has publication date");
-		ok($item->get_pubDate_epoch < $MAX_FUDGE_DATE, "[$i] is fudged");
+		my $pd = $item->get_pubDate_native;
+		my $pd_e = $item->get_pubDate_epoch;
+		if ($pd_e >= 3155760000
+			&& version->parse($XML::FeedPP::VERSION) < version->parse('0.95'))
+		{
+			# stretch version of get_pubDate_epoch has a bug, where it
+			# is interpeting 1970 as 2070. This is from falling afoul of
+			# Time::Local's attempt to be "friendly".
+			$pd_e -= 3155760000;
+		}
+		ok(defined $pd_e, "[$i] has publication date");
+		ok($pd_e < $MAX_FUDGE_DATE, "[$i] is fudged ($pd_e from $pd)");
 		my $guid = $item->guid;
 		if ($guid =~ /-enclosure-\d+$/a) {
 			$last = 'enclosure';
