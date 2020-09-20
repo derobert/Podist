@@ -10,7 +10,7 @@ use Podist::Test::SystemTesting qw(
 );
 use Podist::Test::Notes qw(long_note);
 
-plan_dangerously_or_exit tests => 16;
+plan_dangerously_or_exit tests => 17;
 
 # Make Podist actually run with coverage...
 $ENV{PERL5OPT} = $ENV{HARNESS_PERL_SWITCHES};
@@ -35,7 +35,7 @@ add_test_randoms(
 my $old = $dbh->selectall_hashref(q{SELECT * FROM feeds}, 'feed_no');
 long_note('old feeds:', pp $old);
 
-run3 [@$podist, qw(editfeed -f 1 --disable --name NotGood --no-ordered --no-all-audio --is-music --limit-amount 10 --limit-period=2w --proc-profile NewProfile)], undef, \$stdout, \$stderr;
+run3 [@$podist, qw(editfeed -f 1 --disable --name NotGood --no-ordered --no-all-audio --is-music --limit-amount 10 --limit-period=2w --proc-profile NewProfile --pause)], undef, \$stdout, \$stderr;
 check_run("editfeed runs: change feed 1", $stdout, $stderr);
 
 my $row = $dbh->selectrow_hashref(q{SELECT * FROM feeds WHERE feed_no = 1});
@@ -48,7 +48,7 @@ is_deeply(
 		feed_ordered      => 0,
 		feed_all_audio    => 0,
 		feed_is_music     => 1,
-		feed_paused       => 0,
+		feed_paused       => 1,
 		feed_limit_amount => 10,
 		feed_limit_period => 86400 * 14,
 		feed_proc_profile => 'NewProfile',
@@ -60,7 +60,7 @@ is_deeply(
 my $row = $dbh->selectrow_hashref(q{SELECT * FROM feeds WHERE feed_no = 2});
 is_deeply($row, $old->{2}, 'Feed 2 remains unchanged');
 
-run3 [@$podist, qw(editfeed -f 1 --enable --ordered --all-audio --no-is-music)], undef, \$stdout, \$stderr;
+run3 [@$podist, qw(editfeed -f 1 --enable --ordered --all-audio --no-is-music --play)], undef, \$stdout, \$stderr;
 check_run("editfeed runs: change feed 1 again", $stdout, $stderr);
 
 my $row = $dbh->selectrow_hashref(q{SELECT * FROM feeds WHERE feed_no = 1});
@@ -84,6 +84,9 @@ is_deeply(
 
 run3 [@$podist, qw(editfeed -f 1 --enable --disable)], undef, \$stdout, \$stderr;
 check_run("editfeed refuses enabled & disabled together", $stdout, $stderr, 2<<8);
+
+run3 [@$podist, qw(editfeed -f 1 --pause --play)], undef, \$stdout, \$stderr;
+check_run("editfeed refuses play & pause together", $stdout, $stderr, 2<<8);
 
 run3 [@$podist, qw(editfeed --enable)], undef, \$stdout, \$stderr;
 check_run("editfeed refuses missing feed number", $stdout, $stderr, 2<<8);
