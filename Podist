@@ -89,6 +89,11 @@ my %MIME_MAP = (
 	ogg  => 'audio/ogg; codecs=vorbis',
 	opus => 'audio/ogg; codecs=opus'
 );
+my %SERVER_CFG_ERR_TYPES = (
+	'application/octet-stream' => 1, # often a default type
+	'text/plain'               => 1, # often a default type
+	'binary/octet-stream'      => 1, # new as of 2021, thanks Patreon...
+);
 
 exit go(@ARGV = @ARGV); # https://rt.perl.org/Ticket/Display.html?id=131192
 ### functions only below ###
@@ -586,7 +591,7 @@ QUERY
 		if (exists $SUFFIX_MAP{$ctype}) {
 			$suffix = $SUFFIX_MAP{$ctype};
 		} elsif ($name =~ /\.(mp3|ogg)$/) {
-			if ('text/plain' eq $ctype||'application/octet-stream' eq $ctype) {
+			if ($SERVER_CFG_ERR_TYPES{$ctype}) {
 				$suffix = $1;
 				WARN("Server broken; $enc_url gave us $ctype for $suffix");
 			} elsif (-1 == index($ctype, '/')) {
